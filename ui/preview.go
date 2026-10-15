@@ -3,6 +3,7 @@ package ui
 import (
 	"claude-squad/session"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -109,6 +110,7 @@ func (p *PreviewPane) UpdateContent(instance *session.Instance) error {
 			p.setFallbackState(lipgloss.JoinVertical(lipgloss.Center,
 				"Please enter a name for the instance.",
 				"",
+				fmt.Sprintf("Repository: %s (←/→ to change)", filepath.Base(instance.Path)),
 				fmt.Sprintf("Mode: %s (tab to switch)", mode),
 			))
 		} else {

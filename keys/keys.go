@@ -44,6 +44,7 @@ const (
 	KeyNextWaiting // Jump to the next session waiting for the user.
 
 	KeyToggleMode // While naming a new session: switch between worktree and in-place.
+	KeyPickRepo   // While naming a new session: cycle through the known repositories.
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -163,6 +164,10 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyToggleMode: key.NewBinding(
 		key.WithKeys("tab"),
 		key.WithHelp("tab", "worktree/in-place"),
+	),
+	KeyPickRepo: key.NewBinding(
+		key.WithKeys("left", "right"),
+		key.WithHelp("←/→", "repository"),
 	),
 
 	// -- Special keybindings --

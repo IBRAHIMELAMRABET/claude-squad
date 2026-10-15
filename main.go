@@ -47,11 +47,17 @@ var (
 				return fmt.Errorf("failed to get current directory: %w", err)
 			}
 
-			if !git.IsGitRepo(currentDir) {
-				return fmt.Errorf("error: %s must be run from within a git repository", binName)
-			}
-
 			cfg := config.LoadConfig()
+
+			// Outside a git repository cs can still show stored sessions and create new ones in
+			// configured projects; with nothing configured it would be an empty screen.
+			if !git.IsGitRepo(currentDir) {
+				hasInstances := string(config.LoadState().GetInstances()) != "[]"
+				if !app.CanStartWithoutRepo(cfg, hasInstances) {
+					return fmt.Errorf("error: %s must be run from within a git repository "+
+						"(or configure projects in config.json to pick a repository)", binName)
+				}
+			}
 
 			// Program flag overrides config
 			program := cfg.GetProgram()

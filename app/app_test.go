@@ -612,3 +612,35 @@ func TestNamingTabTogglesInPlace(t *testing.T) {
 	require.Equal(t, stateDefault, h.state)
 	require.Zero(t, h.list.NumInstances())
 }
+
+// While naming a new session, left/right cycle through the known repositories.
+func TestNamingLeftRightPicksRepo(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	h := &home{
+		ctx:          context.Background(),
+		state:        stateNew,
+		appConfig:    &config.Config{ProjectsRoot: "/mnt/c/Projects"},
+		appState:     config.DefaultState(),
+		list:         ui.NewList(&spinner, false),
+		menu:         ui.NewMenu(),
+		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
+		errBox:       ui.NewErrBox(),
+		repoChoices:  []string{"/mnt/c/Projects/Fawri/Code/Backend", "/mnt/c/Projects/CMIBills/Code/Api"},
+	}
+	inst, err := session.NewInstance(session.InstanceOptions{Title: "", Path: h.repoChoices[0], Program: "claude"})
+	require.NoError(t, err)
+	h.list.AddInstance(inst)
+	press := func(msg tea.KeyMsg) {
+		h.keySent = true
+		h.handleKeyPress(msg)
+	}
+
+	press(tea.KeyMsg{Type: tea.KeyRight})
+	require.Equal(t, "/mnt/c/Projects/CMIBills/Code/Api", inst.Path)
+	require.Equal(t, "CMIBills", inst.Project, "the project follows the picked repository")
+	press(tea.KeyMsg{Type: tea.KeyRight})
+	require.Equal(t, "/mnt/c/Projects/Fawri/Code/Backend", inst.Path, "wraps")
+	press(tea.KeyMsg{Type: tea.KeyLeft})
+	require.Equal(t, "/mnt/c/Projects/CMIBills/Code/Api", inst.Path)
+}

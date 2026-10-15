@@ -78,6 +78,10 @@ type home struct {
 
 	// promptAfterName tracks if we should enter prompt mode after naming
 	promptAfterName bool
+	// repoChoices are the repositories offered while naming a new session; repoIdx is the
+	// one currently picked.
+	repoChoices []string
+	repoIdx     int
 
 	// keySent is used to manage underlining menu items
 	keySent bool
@@ -547,8 +551,13 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 				m.state = statePrompt
 				m.menu.SetState(ui.StatePrompt)
 				m.textInputOverlay = m.newPromptOverlay()
-				// Trigger initial branch search (no debounce, version 0)
-				initialSearch := m.runBranchSearch("", m.textInputOverlay.BranchFilterVersion())
+				// Fetch the picked repo, then run the initial branch search (no debounce, version 0)
+				repo := instance.Path
+				version := m.textInputOverlay.BranchFilterVersion()
+				initialSearch := func() tea.Msg {
+					git.FetchBranches(repo)
+					return m.runBranchSearch("", version)()
+				}
 				return m, tea.Batch(tea.WindowSize(), initialSearch)
 			}
 
@@ -591,6 +600,17 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			}
 		case tea.KeyTab:
 			instance.InPlace = !instance.InPlace
+			return m, m.instanceChanged()
+		case tea.KeyLeft, tea.KeyRight:
+			if len(m.repoChoices) > 1 {
+				step := 1
+				if msg.Type == tea.KeyLeft {
+					step = len(m.repoChoices) - 1
+				}
+				m.repoIdx = (m.repoIdx + step) % len(m.repoChoices)
+				instance.Path = m.repoChoices[m.repoIdx]
+				instance.Project = m.appConfig.ProjectFor(instance.Path)
+			}
 			return m, m.instanceChanged()
 		case tea.KeyEsc:
 			m.list.Kill()
@@ -742,23 +762,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 				fmt.Errorf("you can't create more than %d instances", limit))
 		}
 
-		// Start a background fetch so branches are up to date by the time the picker opens
-		fetchCmd := func() tea.Msg {
-			currentDir, _ := os.Getwd()
-			git.FetchBranches(currentDir)
-			return nil
-		}
-
-		instance, err := session.NewInstance(session.InstanceOptions{
-			Title:   "",
-			Path:    ".",
-			Program: m.program,
-			InPlace: m.appConfig.InPlaceByDefault(),
-		})
+		instance, err := m.newInstanceInPickedRepo()
 		if err != nil {
 			return m, m.handleError(err)
 		}
-		instance.Project = m.appConfig.ProjectFor(instance.Path)
 
 		m.newInstanceFinalizer = m.list.AddInstance(instance)
 		m.list.SetSelectedInstance(m.list.NumInstances() - 1)
@@ -766,22 +773,16 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.menu.SetState(ui.StateNewInstance)
 		m.promptAfterName = true
 
-		return m, fetchCmd
+		return m, nil
 	case keys.KeyNew:
 		if limit := m.appConfig.GetMaxInstances(); m.list.NumInstances() >= limit {
 			return m, m.handleError(
 				fmt.Errorf("you can't create more than %d instances", limit))
 		}
-		instance, err := session.NewInstance(session.InstanceOptions{
-			Title:   "",
-			Path:    ".",
-			Program: m.program,
-			InPlace: m.appConfig.InPlaceByDefault(),
-		})
+		instance, err := m.newInstanceInPickedRepo()
 		if err != nil {
 			return m, m.handleError(err)
 		}
-		instance.Project = m.appConfig.ProjectFor(instance.Path)
 
 		m.newInstanceFinalizer = m.list.AddInstance(instance)
 		m.list.SetSelectedInstance(m.list.NumInstances() - 1)
@@ -971,6 +972,28 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 // errNotManaged is shown when a managed-only action targets an adopted session.
 var errNotManaged = fmt.Errorf("this session was not created by claude-squad: open it with enter")
 
+// newInstanceInPickedRepo prepares an unnamed instance in the first known repository and
+// records the alternatives the user can cycle through with left/right while naming it.
+func (m *home) newInstanceInPickedRepo() (*session.Instance, error) {
+	cwd, _ := os.Getwd()
+	m.repoChoices = knownRepos(cwd, m.appConfig, m.list.GetInstances())
+	m.repoIdx = 0
+	if len(m.repoChoices) == 0 {
+		return nil, fmt.Errorf("no repository to create a session in: run inside a git repository or configure projects")
+	}
+	instance, err := session.NewInstance(session.InstanceOptions{
+		Title:   "",
+		Path:    m.repoChoices[0],
+		Program: m.program,
+		InPlace: m.appConfig.InPlaceByDefault(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	instance.Project = m.appConfig.ProjectFor(instance.Path)
+	return instance, nil
+}
+
 // errInPlace is shown when a worktree-only action targets an in-place session.
 var errInPlace = fmt.Errorf("this session runs in place: commit and push from the repository itself")
 
@@ -1096,9 +1119,12 @@ func (m *home) scheduleBranchSearch(filter string, version uint64) tea.Cmd {
 
 // runBranchSearch returns a tea.Cmd that performs the git search in the background.
 func (m *home) runBranchSearch(filter string, version uint64) tea.Cmd {
+	repo, _ := os.Getwd()
+	if selected := m.list.GetSelectedInstance(); selected != nil && selected.Path != "" {
+		repo = selected.Path
+	}
 	return func() tea.Msg {
-		currentDir, _ := os.Getwd()
-		branches, err := git.SearchBranches(currentDir, filter)
+		branches, err := git.SearchBranches(repo, filter)
 		if err != nil {
 			log.WarningLog.Printf("branch search failed: %v", err)
 			return nil

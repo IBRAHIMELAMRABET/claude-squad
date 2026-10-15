@@ -55,7 +55,7 @@ type Menu struct {
 }
 
 var defaultMenuOptions = []keys.KeyName{keys.KeyNew, keys.KeyPrompt, keys.KeyHelp, keys.KeyQuit}
-var newInstanceMenuOptions = []keys.KeyName{keys.KeySubmitName, keys.KeyToggleMode}
+var newInstanceMenuOptions = []keys.KeyName{keys.KeySubmitName, keys.KeyPickRepo, keys.KeyToggleMode}
 var promptMenuOptions = []keys.KeyName{keys.KeySubmitName}
 var filterMenuOptions = []keys.KeyName{keys.KeyFilterKeep, keys.KeyFilterClear}
 
