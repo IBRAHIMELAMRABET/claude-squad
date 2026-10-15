@@ -57,6 +57,11 @@ type Config struct {
 	// WorktreeNextToRepo places each worktree under ".claude-squad-worktrees/<repo>" beside
 	// its repository instead of WorktreeDir, keeping worktrees on the repo's filesystem.
 	WorktreeNextToRepo bool `json:"worktree_next_to_repo,omitempty"`
+	// ProjectsRoot is a directory whose first-level folders name projects: a repository at
+	// <root>/<Project>/... belongs to <Project> unless an explicit project claims it.
+	ProjectsRoot string `json:"projects_root,omitempty"`
+	// Projects maps repositories to named groups. See Project and ProjectFor.
+	Projects []Project `json:"projects,omitempty"`
 }
 
 // GetMaxInstances returns the session cap, falling back to DefaultMaxInstances.
