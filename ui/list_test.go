@@ -220,3 +220,53 @@ func TestWaitingSortsFirstAndCountsInHeader(t *testing.T) {
 	require.Equal(t, 1, l.rows()[0].waiting)
 	require.Contains(t, l.String(), "1 waiting")
 }
+
+func TestActiveOnlyHidesPausedAndEmptyGroups(t *testing.T) {
+	l := newTestList("live", "paused")
+	l.items[0].Project, l.items[1].Project = "A", "B"
+	l.items[1].Status = session.Paused
+	l.SelectInstance(l.items[1])
+
+	l.SetActiveOnly(true)
+	require.Equal(t, []string{"#A", "live"}, rowLabels(l), "the paused session and its empty group disappear")
+	require.Equal(t, "live", l.GetSelectedInstance().Title, "selection moves to a visible session")
+
+	l.SetActiveOnly(false)
+	require.Equal(t, []string{"#A", "live", "#B", "paused"}, rowLabels(l))
+}
+
+func TestTextFilterMatchesTitleProjectRepoAndBranch(t *testing.T) {
+	l := newTestList("fix-auth", "docs", "api")
+	l.items[0].Project = "Fawri"
+	l.items[1].Project = "CMIBills"
+	l.items[2].Project = "Fawri"
+	l.items[2].Branch = "user/billing-api"
+
+	cases := map[string][]string{
+		"AUTH":    {"fix-auth"},
+		"fawri":   {"fix-auth", "api"},
+		"billing": {"api"},
+		"zzz":     {},
+		"":        {"docs", "fix-auth", "api"}, // groups are alphabetical
+	}
+	for filter, want := range cases {
+		l.SetFilter(filter)
+		require.Equal(t, want, titlesOf(l.visible()), "filter %q", filter)
+	}
+}
+
+func TestTitleShowsFilterBadgesAndWaitingCount(t *testing.T) {
+	l := newTestList("one", "two", "three")
+	l.items[0].Status = session.Waiting
+	l.items[1].Status = session.Waiting
+	l.items[2].Status = session.Paused
+	l.SetSize(80, 30)
+
+	l.SetActiveOnly(true)
+	l.SetFilter("tw")
+	out := l.String()
+	require.Contains(t, out, " active ")
+	require.Contains(t, out, " /tw ")
+	require.Contains(t, out, "1 waiting", "only the visible waiting sessions are counted")
+	require.Equal(t, 1, l.WaitingCount())
+}

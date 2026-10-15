@@ -39,6 +39,8 @@ type AppState interface {
 type UIPrefs struct {
 	// FoldedProjects lists the project groups collapsed in the session list.
 	FoldedProjects []string `json:"folded_projects,omitempty"`
+	// ActiveOnly hides paused sessions from the list.
+	ActiveOnly bool `json:"active_only,omitempty"`
 }
 
 // StateManager combines instance storage and app state management

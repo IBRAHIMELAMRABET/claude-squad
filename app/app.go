@@ -46,6 +46,8 @@ const (
 	stateHelp
 	// stateConfirm is the state when a confirmation modal is displayed.
 	stateConfirm
+	// stateFilter is the state when the user is typing a text filter for the list.
+	stateFilter
 )
 
 type home struct {
@@ -158,6 +160,7 @@ func newHome(ctx context.Context, program string, autoYes bool) *home {
 	}
 	h.list.SetProjectColors(projectColors(appConfig))
 	h.list.SetFolded(appState.GetUIPrefs().FoldedProjects)
+	h.list.SetActiveOnly(appState.GetUIPrefs().ActiveOnly)
 
 	return h
 }
@@ -177,6 +180,7 @@ func projectColors(cfg *config.Config) map[string]string {
 func (m *home) saveUIPrefs() {
 	prefs := m.appState.GetUIPrefs()
 	prefs.FoldedProjects = m.list.FoldedProjects()
+	prefs.ActiveOnly = m.list.ActiveOnly()
 	if err := m.appState.SetUIPrefs(prefs); err != nil {
 		log.WarningLog.Printf("failed to save UI preferences: %v", err)
 	}
@@ -382,7 +386,7 @@ func (m *home) handleMenuHighlighting(msg tea.KeyMsg) (cmd tea.Cmd, returnEarly 
 		m.keySent = false
 		return nil, false
 	}
-	if m.state == statePrompt || m.state == stateHelp || m.state == stateConfirm {
+	if m.state == statePrompt || m.state == stateHelp || m.state == stateConfirm || m.state == stateFilter {
 		return nil, false
 	}
 	// If it's in the global keymap, we should try to highlight it.
@@ -417,6 +421,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 
 	if m.state == stateHelp {
 		return m.handleHelpState(msg)
+	}
+
+	if m.state == stateFilter {
+		return m.handleFilterState(msg)
 	}
 
 	if m.state == stateNew {
@@ -783,6 +791,14 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.list.ToggleFold()
 		m.saveUIPrefs()
 		return m, m.instanceChanged()
+	case keys.KeyActiveOnly:
+		m.list.SetActiveOnly(!m.list.ActiveOnly())
+		m.saveUIPrefs()
+		return m, m.instanceChanged()
+	case keys.KeySearch:
+		m.state = stateFilter
+		m.menu.SetState(ui.StateFilter)
+		return m, nil
 	case keys.KeyResume:
 		selected := m.list.GetSelectedInstance()
 		if selected == nil || selected.Status == session.Loading {
@@ -830,6 +846,32 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 	default:
 		return m, nil
 	}
+}
+
+// handleFilterState edits the text filter: typed runes extend it, enter keeps it, esc
+// clears it.
+func (m *home) handleFilterState(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	leave := func() (tea.Model, tea.Cmd) {
+		m.state = stateDefault
+		m.menu.SetState(ui.StateDefault)
+		return m, m.instanceChanged()
+	}
+	switch msg.Type {
+	case tea.KeyEnter:
+		return leave()
+	case tea.KeyEsc, tea.KeyCtrlC:
+		m.list.SetFilter("")
+		return leave()
+	case tea.KeyBackspace:
+		if r := []rune(m.list.Filter()); len(r) > 0 {
+			m.list.SetFilter(string(r[:len(r)-1]))
+		}
+	case tea.KeySpace:
+		m.list.SetFilter(m.list.Filter() + " ")
+	case tea.KeyRunes:
+		m.list.SetFilter(m.list.Filter() + string(msg.Runes))
+	}
+	return m, m.instanceChanged()
 }
 
 // instanceChanged updates the preview pane, menu, and diff pane based on the selected instance. It returns an error

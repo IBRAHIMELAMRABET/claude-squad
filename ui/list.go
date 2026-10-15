@@ -62,6 +62,10 @@ var autoYesStyle = lipgloss.NewStyle().
 	Background(lipgloss.Color("#dde4f0")).
 	Foreground(lipgloss.Color("#1a1a1a"))
 
+var badgeStyle = lipgloss.NewStyle().
+	Background(lipgloss.Color("62")).
+	Foreground(lipgloss.Color("230"))
+
 var groupHeaderStyle = lipgloss.NewStyle().
 	Bold(true).
 	Padding(0, 1).
@@ -84,6 +88,11 @@ type List struct {
 	folded map[string]bool
 	// projectColors maps a project name to an optional hex color for its header.
 	projectColors map[string]string
+
+	// activeOnly hides paused sessions.
+	activeOnly bool
+	// filter is a case-insensitive substring matched against title, project, repo and branch.
+	filter string
 }
 
 func NewList(spinner *spinner.Model, autoYes bool) *List {
@@ -137,6 +146,66 @@ func (l *List) SetFolded(projects []string) {
 	for _, p := range projects {
 		l.folded[p] = true
 	}
+}
+
+// SetActiveOnly hides or shows paused sessions.
+func (l *List) SetActiveOnly(on bool) {
+	l.activeOnly = on
+	l.ensureVisibleSelection()
+}
+
+// ActiveOnly reports whether paused sessions are hidden.
+func (l *List) ActiveOnly() bool {
+	return l.activeOnly
+}
+
+// SetFilter sets the text filter; empty clears it.
+func (l *List) SetFilter(text string) {
+	l.filter = text
+	l.ensureVisibleSelection()
+}
+
+// Filter returns the current text filter.
+func (l *List) Filter() string {
+	return l.filter
+}
+
+// matches reports whether the instance passes the active and text filters.
+func (l *List) matches(i *session.Instance) bool {
+	if l.activeOnly && i.Paused() {
+		return false
+	}
+	if l.filter == "" {
+		return true
+	}
+	needle := strings.ToLower(l.filter)
+	for _, hay := range []string{i.Title, projectOf(i), i.RepoLabel(), i.Branch} {
+		if strings.Contains(strings.ToLower(hay), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// WaitingCount returns how many listed sessions are waiting for the user.
+func (l *List) WaitingCount() int {
+	n := 0
+	for _, inst := range l.items {
+		if l.matches(inst) && inst.NeedsAttention() {
+			n++
+		}
+	}
+	return n
+}
+
+// ensureVisibleSelection moves the selection to the first visible session when the
+// current one is filtered out or folded away.
+func (l *List) ensureVisibleSelection() {
+	vis := l.visible()
+	if len(vis) == 0 || indexOf(vis, l.GetSelectedInstance()) != -1 {
+		return
+	}
+	l.SelectInstance(vis[0])
 }
 
 // FoldedProjects returns the folded project names, sorted.
@@ -334,6 +403,9 @@ func (l *List) groups() ([]string, map[string][]*session.Instance) {
 	order := make(map[*session.Instance]int, len(l.items))
 	for idx, inst := range l.items {
 		order[inst] = idx
+		if !l.matches(inst) {
+			continue
+		}
 		p := projectOf(inst)
 		byProject[p] = append(byProject[p], inst)
 	}
@@ -456,15 +528,26 @@ func (l *List) String() string {
 	b.WriteString("\n")
 	b.WriteString("\n")
 
-	// Write title line
+	// Write title line: the title, then badges for the active filters and the number of
+	// sessions waiting for the user.
 	// add padding of 2 because the border on list items adds some extra characters
 	titleWidth := AdjustPreviewWidth(l.width) + 2
+	left := mainTitle.Render(titleText)
+	if l.activeOnly {
+		left += " " + badgeStyle.Render(" active ")
+	}
+	if l.filter != "" {
+		left += " " + badgeStyle.Render(" /"+l.filter+" ")
+	}
+	if n := l.WaitingCount(); n > 0 {
+		left += " " + waitingStyle.Render(fmt.Sprintf("%d waiting", n))
+	}
 	if !l.autoyes {
 		b.WriteString(lipgloss.Place(
-			titleWidth, 1, lipgloss.Left, lipgloss.Bottom, mainTitle.Render(titleText)))
+			titleWidth, 1, lipgloss.Left, lipgloss.Bottom, left))
 	} else {
 		title := lipgloss.Place(
-			titleWidth/2, 1, lipgloss.Left, lipgloss.Bottom, mainTitle.Render(titleText))
+			titleWidth/2, 1, lipgloss.Left, lipgloss.Bottom, left)
 		autoYes := lipgloss.Place(
 			titleWidth-(titleWidth/2), 1, lipgloss.Right, lipgloss.Bottom, autoYesStyle.Render(autoYesText))
 		b.WriteString(lipgloss.JoinHorizontal(

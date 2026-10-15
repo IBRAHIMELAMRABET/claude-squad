@@ -464,3 +464,47 @@ func TestConfirmationModalVisualAppearance(t *testing.T) {
 	// Test that the danger indicator is preserved
 	assert.Contains(t, rendered, "[!")
 }
+
+// The text filter is edited in its own state so typed letters never trigger commands.
+func TestFilterModeKeys(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	list := ui.NewList(&spinner, false)
+	h := &home{
+		ctx:          context.Background(),
+		state:        stateDefault,
+		appConfig:    config.DefaultConfig(),
+		appState:     config.DefaultState(),
+		list:         list,
+		menu:         ui.NewMenu(),
+		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
+		errBox:       ui.NewErrBox(),
+	}
+	press := func(msg tea.KeyMsg) {
+		h.keySent = true // skip the menu highlighting round-trip
+		h.handleKeyPress(msg)
+	}
+	runes := func(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+
+	press(runes("/"))
+	require.Equal(t, stateFilter, h.state)
+	press(runes("q"))
+	require.Equal(t, stateFilter, h.state, "q is typed into the filter, not quit")
+	press(runes("a"))
+	require.Equal(t, "qa", list.Filter())
+	press(tea.KeyMsg{Type: tea.KeyBackspace})
+	require.Equal(t, "q", list.Filter())
+	press(tea.KeyMsg{Type: tea.KeyEnter})
+	require.Equal(t, stateDefault, h.state)
+	require.Equal(t, "q", list.Filter(), "enter keeps the filter")
+
+	press(runes("/"))
+	press(tea.KeyMsg{Type: tea.KeyEsc})
+	require.Equal(t, stateDefault, h.state)
+	require.Equal(t, "", list.Filter(), "esc clears the filter")
+
+	press(runes("a"))
+	require.True(t, list.ActiveOnly())
+	press(runes("a"))
+	require.False(t, list.ActiveOnly())
+}

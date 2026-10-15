@@ -31,6 +31,12 @@ const (
 
 	// Project group keybindings
 	KeyFold // Fold/unfold the selected session's project group.
+
+	// Filter keybindings
+	KeyActiveOnly  // Toggle hiding paused sessions.
+	KeySearch      // Start typing a text filter.
+	KeyFilterKeep  // Leave filter mode keeping the filter (enter).
+	KeyFilterClear // Leave filter mode clearing the filter (esc).
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -42,6 +48,8 @@ var GlobalKeyStringsMap = map[string]KeyName{
 	"shift+up":   KeyShiftUp,
 	"shift+down": KeyShiftDown,
 	" ":          KeyFold,
+	"a":          KeyActiveOnly,
+	"/":          KeySearch,
 	"N":          KeyPrompt,
 	"enter":      KeyEnter,
 	"o":          KeyEnter,
@@ -117,6 +125,22 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyFold: key.NewBinding(
 		key.WithKeys(" "),
 		key.WithHelp("space", "fold"),
+	),
+	KeyActiveOnly: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "active only"),
+	),
+	KeySearch: key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "filter"),
+	),
+	KeyFilterKeep: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "keep filter"),
+	),
+	KeyFilterClear: key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "clear filter"),
 	),
 
 	// -- Special keybindings --
