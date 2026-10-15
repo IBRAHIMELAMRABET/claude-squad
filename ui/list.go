@@ -634,6 +634,26 @@ func (l *List) ToggleFold() {
 	}
 }
 
+// NextWaiting selects the next session waiting for the user, after the current selection
+// in display order and wrapping around, unfolding its group if needed. It reports whether
+// one was found.
+func (l *List) NextWaiting() bool {
+	ordered := l.ordered()
+	if len(ordered) == 0 {
+		return false
+	}
+	pos := indexOf(ordered, l.GetSelectedInstance())
+	for i := 1; i <= len(ordered); i++ {
+		cand := ordered[(pos+i)%len(ordered)]
+		if cand.NeedsAttention() {
+			delete(l.folded, projectOf(cand))
+			l.SelectInstance(cand)
+			return true
+		}
+	}
+	return false
+}
+
 // Kill removes the selected session and selects its visible neighbour.
 func (l *List) Kill() {
 	if len(l.items) == 0 {

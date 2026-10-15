@@ -48,6 +48,7 @@ func (h helpTypeGeneral) toContent() string {
 		keyStyle.Render("a")+descStyle.Render("         - Show active sessions only (hide paused)"),
 		keyStyle.Render("/")+descStyle.Render("         - Filter sessions by text (enter keeps, esc clears)"),
 		keyStyle.Render("z")+descStyle.Render("         - Hide/show the session list (full-width preview)"),
+		keyStyle.Render("w")+descStyle.Render("         - Jump to the next session waiting for you"),
 		keyStyle.Render("↵/o")+descStyle.Render("       - Attach to the selected session"),
 		keyStyle.Render("ctrl-q")+descStyle.Render("    - Detach from session"),
 		"",

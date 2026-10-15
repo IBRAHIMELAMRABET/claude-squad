@@ -270,3 +270,23 @@ func TestTitleShowsFilterBadgesAndWaitingCount(t *testing.T) {
 	require.Contains(t, out, "1 waiting", "only the visible waiting sessions are counted")
 	require.Equal(t, 1, l.WaitingCount())
 }
+
+func TestNextWaitingWrapsAndUnfolds(t *testing.T) {
+	l := newTestList("a1", "b1", "b2", "c1")
+	l.items[0].Project, l.items[1].Project, l.items[2].Project, l.items[3].Project = "A", "B", "B", "C"
+	l.items[0].Status = session.Waiting
+	l.items[2].Status = session.Waiting
+	l.SetFolded([]string{"B"})
+	l.SelectInstance(l.items[0])
+
+	require.True(t, l.NextWaiting())
+	require.Equal(t, "b2", l.GetSelectedInstance().Title)
+	require.Empty(t, l.FoldedProjects(), "the target's group is unfolded")
+
+	require.True(t, l.NextWaiting())
+	require.Equal(t, "a1", l.GetSelectedInstance().Title, "wraps around")
+
+	l.items[0].Status, l.items[2].Status = session.Ready, session.Ready
+	require.False(t, l.NextWaiting())
+	require.Equal(t, "a1", l.GetSelectedInstance().Title, "selection untouched when nothing waits")
+}

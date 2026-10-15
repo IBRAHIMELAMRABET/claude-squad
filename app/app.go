@@ -807,6 +807,12 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.state = stateFilter
 		m.menu.SetState(ui.StateFilter)
 		return m, nil
+	case keys.KeyNextWaiting:
+		if !m.list.NextWaiting() {
+			return m, m.handleError(fmt.Errorf("no session is waiting for you"))
+		}
+		m.saveUIPrefs()
+		return m, m.instanceChanged()
 	case keys.KeyToggleList:
 		m.listHidden = !m.listHidden
 		m.saveUIPrefs()

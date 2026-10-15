@@ -148,7 +148,7 @@ func (m *Menu) addInstanceOptions() {
 	}
 
 	// System group
-	systemGroup := []keys.KeyName{keys.KeyTab, keys.KeyActiveOnly, keys.KeySearch, keys.KeyToggleList, keys.KeyHelp, keys.KeyQuit}
+	systemGroup := []keys.KeyName{keys.KeyTab, keys.KeyNextWaiting, keys.KeyActiveOnly, keys.KeySearch, keys.KeyToggleList, keys.KeyHelp, keys.KeyQuit}
 
 	// Combine all groups
 	options = append(options, actionGroup...)

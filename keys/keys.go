@@ -40,6 +40,8 @@ const (
 
 	// Layout keybindings
 	KeyToggleList // Hide/show the session list pane.
+
+	KeyNextWaiting // Jump to the next session waiting for the user.
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -54,6 +56,7 @@ var GlobalKeyStringsMap = map[string]KeyName{
 	"a":          KeyActiveOnly,
 	"/":          KeySearch,
 	"z":          KeyToggleList,
+	"w":          KeyNextWaiting,
 	"N":          KeyPrompt,
 	"enter":      KeyEnter,
 	"o":          KeyEnter,
@@ -149,6 +152,10 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyToggleList: key.NewBinding(
 		key.WithKeys("z"),
 		key.WithHelp("z", "list"),
+	),
+	KeyNextWaiting: key.NewBinding(
+		key.WithKeys("w"),
+		key.WithHelp("w", "next waiting"),
 	),
 
 	// -- Special keybindings --
