@@ -231,6 +231,9 @@ func (r *InstanceRenderer) setWidth(width int) {
 // ɹ and ɻ are other options.
 const branchIcon = "Ꮧ"
 
+// adoptedIcon marks sessions found in tmux that claude-squad did not create.
+const adoptedIcon = "⇄"
+
 // ago formats how long ago t was, compactly ("now", "5m", "2h", "3d"). Empty for the zero time.
 func ago(t time.Time) string {
 	if t.IsZero() {
@@ -328,6 +331,11 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool) s
 	remainingWidth -= diffWidth
 
 	branch := i.Branch
+	icon := branchIcon
+	if i.Adopted {
+		icon = adoptedIcon
+		branch = "tmux"
+	}
 	if repo := i.RepoLabel(); repo != "" && repo != "." {
 		branch += fmt.Sprintf(" (%s)", repo)
 	}
@@ -351,7 +359,7 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool) s
 		spaces = strings.Repeat(" ", remainingWidth)
 	}
 
-	branchLine := fmt.Sprintf("%s %s-%s%s%s%s", strings.Repeat(" ", len(prefix)), branchIcon, branch, spaces, age, diff)
+	branchLine := fmt.Sprintf("%s %s-%s%s%s%s", strings.Repeat(" ", len(prefix)), icon, branch, spaces, age, diff)
 
 	// join title and subtitle
 	text := lipgloss.JoinVertical(
@@ -654,6 +662,25 @@ func (l *List) NextWaiting() bool {
 	return false
 }
 
+// Remove drops an instance from the list without killing anything, keeping a sensible
+// selection. Used for adopted sessions that disappeared from tmux.
+func (l *List) Remove(target *session.Instance) {
+	idx := indexOf(l.items, target)
+	if idx == -1 {
+		return
+	}
+	selected := l.GetSelectedInstance()
+	l.items = append(l.items[:idx], l.items[idx+1:]...)
+	if selected != nil && selected != target {
+		l.SelectInstance(selected)
+		return
+	}
+	if l.selectedIdx >= len(l.items) {
+		l.selectedIdx = 0
+	}
+	l.ensureVisibleSelection()
+}
+
 // Kill removes the selected session and selects its visible neighbour.
 func (l *List) Kill() {
 	if len(l.items) == 0 {
@@ -695,8 +722,11 @@ func (l *List) Attach() (chan struct{}, error) {
 // When creating a new one and entering the name, you want to call the finalizer once the name is done.
 func (l *List) AddInstance(instance *session.Instance) (finalize func()) {
 	l.items = append(l.items, instance)
-	// A new session must be visible, so unfold its group.
-	delete(l.folded, projectOf(instance))
+	// A session the user just created must be visible, so unfold its group. Adopted
+	// sessions appear on their own and must not disturb the folds.
+	if !instance.Adopted {
+		delete(l.folded, projectOf(instance))
+	}
 	return func() {
 		if instance.LastActivity.IsZero() {
 			instance.LastActivity = now()

@@ -231,3 +231,22 @@ func shellQuote(s string) string {
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// Prune deletes status files whose pane no longer exists, so ids reused by a restarted
+// tmux server cannot resurrect stale events.
+func Prune(statusDir string, livePanes map[string]bool) {
+	entries, err := os.ReadDir(statusDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "pane-") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		pane := "%" + strings.TrimSuffix(strings.TrimPrefix(name, "pane-"), ".json")
+		if !livePanes[pane] {
+			_ = os.Remove(filepath.Join(statusDir, name))
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"claude-squad/cmd"
 	"claude-squad/config"
 	"claude-squad/hooks"
 	"claude-squad/keys"
@@ -235,7 +236,67 @@ func (m *home) Init() tea.Cmd {
 			return previewTickMsg{}
 		},
 		tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir),
+		m.scanAdoptCmd(),
 	)
+}
+
+// adoptScanInterval is how often tmux is scanned for agent sessions to adopt.
+const adoptScanInterval = 2 * time.Second
+
+// adoptScanMsg carries the panes found on the tmux server.
+type adoptScanMsg struct {
+	panes []tmux.Pane
+}
+
+// scanAdoptCmd lists tmux panes in the background after adoptScanInterval. It is a no-op
+// when adoption is disabled.
+func (m *home) scanAdoptCmd() tea.Cmd {
+	if m.appConfig.DisableAdopt {
+		return nil
+	}
+	return func() tea.Msg {
+		time.Sleep(adoptScanInterval)
+		panes, err := tmux.ListPanes(cmd.MakeExecutor())
+		if err != nil {
+			log.WarningLog.Printf("could not list tmux panes: %v", err)
+			return nil
+		}
+		return adoptScanMsg{panes: panes}
+	}
+}
+
+// reconcileAdopted adds newly found foreign agent sessions to the list and drops the ones
+// that went away. It reports whether the list changed.
+func (m *home) reconcileAdopted(panes []tmux.Pane) bool {
+	wanted := session.AdoptablePanes(panes, m.appConfig.GetAdoptPrograms())
+	live := make(map[string]bool, len(wanted))
+	for _, p := range wanted {
+		live[p.Session] = true
+	}
+
+	changed := false
+	known := make(map[string]bool)
+	for _, inst := range m.list.GetInstances() {
+		if !inst.Adopted {
+			continue
+		}
+		if !live[inst.Title] {
+			m.list.Remove(inst)
+			changed = true
+			continue
+		}
+		known[inst.Title] = true
+	}
+	for _, p := range wanted {
+		if known[p.Session] {
+			continue
+		}
+		inst := session.NewAdoptedInstance(p)
+		inst.Project = m.appConfig.ProjectFor(p.Path)
+		m.list.AddInstance(inst)()
+		changed = true
+	}
+	return changed
 }
 
 func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -254,6 +315,18 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case keyupMsg:
 		m.menu.ClearKeydown()
 		return m, nil
+	case adoptScanMsg:
+		livePanes := make(map[string]bool, len(msg.panes))
+		for _, p := range msg.panes {
+			livePanes[p.ID] = true
+		}
+		if m.statusDir != "" {
+			hooks.Prune(m.statusDir, livePanes)
+		}
+		if m.reconcileAdopted(msg.panes) {
+			return m, tea.Batch(m.instanceChanged(), m.scanAdoptCmd())
+		}
+		return m, m.scanAdoptCmd()
 	case instanceStartDoneMsg:
 		m.instanceStarting = false
 		inst := msg.instance
@@ -732,6 +805,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if selected == nil || selected.Status == session.Loading {
 			return m, nil
 		}
+		if selected.Adopted {
+			return m, m.handleError(errNotManaged)
+		}
 
 		// Create the kill action as a tea.Cmd
 		killAction := func() tea.Msg {
@@ -772,6 +848,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if selected == nil || selected.Status == session.Loading {
 			return m, nil
 		}
+		if selected.Adopted {
+			return m, m.handleError(errNotManaged)
+		}
 
 		// Create the push action as a tea.Cmd
 		pushAction := func() tea.Msg {
@@ -794,6 +873,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		selected := m.list.GetSelectedInstance()
 		if selected == nil || selected.Status == session.Loading {
 			return m, nil
+		}
+		if selected.Adopted {
+			return m, m.handleError(errNotManaged)
 		}
 
 		// Show help screen before pausing
@@ -831,6 +913,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		selected := m.list.GetSelectedInstance()
 		if selected == nil || selected.Status == session.Loading {
 			return m, nil
+		}
+		if selected.Adopted {
+			return m, m.handleError(errNotManaged)
 		}
 		if err := selected.Resume(); err != nil {
 			return m, m.handleError(err)
@@ -875,6 +960,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		return m, nil
 	}
 }
+
+// errNotManaged is shown when a managed-only action targets an adopted session.
+var errNotManaged = fmt.Errorf("this session was not created by claude-squad: open it with enter")
 
 // bell rings the terminal bell. Overridable in tests.
 var bell = func() { _, _ = os.Stdout.WriteString("") }

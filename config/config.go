@@ -68,6 +68,21 @@ type Config struct {
 	// Notifications controls how cs signals that a session started waiting for you.
 	// Omitted means both signals are on.
 	Notifications *Notifications `json:"notifications,omitempty"`
+	// DisableAdopt stops cs from listing agent sessions running in tmux sessions it did
+	// not create.
+	DisableAdopt bool `json:"disable_adopt,omitempty"`
+	// AdoptPrograms lists the foreground program names that mark a foreign tmux pane as an
+	// agent session worth listing. Default: ["claude"].
+	AdoptPrograms []string `json:"adopt_programs,omitempty"`
+}
+
+// GetAdoptPrograms returns the program names that qualify a foreign tmux pane for
+// adoption, defaulting to claude.
+func (c *Config) GetAdoptPrograms() []string {
+	if len(c.AdoptPrograms) == 0 {
+		return []string{defaultProgram}
+	}
+	return c.AdoptPrograms
 }
 
 // Notifications are the signals emitted when a session starts waiting for the user.

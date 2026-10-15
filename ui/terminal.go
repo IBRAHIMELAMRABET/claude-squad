@@ -86,6 +86,10 @@ func (t *TerminalPane) UpdateContent(instance *session.Instance) error {
 		t.setFallbackState("Instance is not started yet.")
 		return nil
 	}
+	if instance.GetWorktreePath() == "" {
+		t.setFallbackState("The terminal is only available for sessions with a worktree.")
+		return nil
+	}
 
 	// Skip content updates while in scroll mode
 	if t.isScrolling {

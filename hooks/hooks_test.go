@@ -138,3 +138,24 @@ func TestHookCommandQuotesSpaces(t *testing.T) {
 	require.Equal(t, "'/Program Files/cs' hook", HookCommand("/Program Files/cs"))
 	require.Equal(t, `'/it'\''s/cs' hook`, HookCommand("/it's/cs"))
 }
+
+func TestPruneDropsDeadPanes(t *testing.T) {
+	dir := t.TempDir()
+	for _, pane := range []string{"%1", "%2", "%3"} {
+		require.NoError(t, Record(dir, strings.NewReader(samplePayload), pane, time.Now()))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("keep"), 0644))
+
+	Prune(dir, map[string]bool{"%2": true})
+
+	_, ok := Read(dir, "%1")
+	require.False(t, ok)
+	_, ok = Read(dir, "%2")
+	require.True(t, ok)
+	_, ok = Read(dir, "%3")
+	require.False(t, ok)
+	_, err := os.Stat(filepath.Join(dir, "notes.txt"))
+	require.NoError(t, err, "unrelated files are left alone")
+
+	Prune(filepath.Join(dir, "missing"), nil) // no directory: no panic
+}

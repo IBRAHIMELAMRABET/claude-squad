@@ -60,7 +60,8 @@ func (s *Storage) SaveInstances(instances []*Instance) error {
 	// Convert instances to InstanceData
 	data := make([]InstanceData, 0)
 	for _, instance := range instances {
-		if instance.Started() {
+		// Adopted sessions belong to someone else and are rediscovered on each run.
+		if instance.Started() && !instance.Adopted {
 			data = append(data, instance.ToInstanceData())
 		}
 	}

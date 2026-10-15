@@ -290,3 +290,34 @@ func TestNextWaitingWrapsAndUnfolds(t *testing.T) {
 	require.False(t, l.NextWaiting())
 	require.Equal(t, "a1", l.GetSelectedInstance().Title, "selection untouched when nothing waits")
 }
+
+func TestRemoveKeepsSelection(t *testing.T) {
+	l := newTestList("a", "b", "c")
+	l.SelectInstance(l.items[2])
+
+	l.Remove(l.items[0])
+	require.Equal(t, "c", l.GetSelectedInstance().Title, "removing another row keeps the selection")
+	require.Equal(t, []string{"b", "c"}, titlesOf(l.visible()))
+
+	l.Remove(l.items[1]) // the selected one
+	require.Equal(t, "b", l.GetSelectedInstance().Title)
+
+	l.Remove(l.items[0])
+	require.Nil(t, l.GetSelectedInstance())
+}
+
+func TestAdoptedInstanceDoesNotUnfoldAndRendersMarker(t *testing.T) {
+	l := newTestList("a1")
+	l.items[0].Project = "A"
+	l.SetFolded([]string{"A"})
+
+	inst, _ := session.NewInstance(session.InstanceOptions{Title: "scratch", Path: ".", Program: "claude"})
+	inst.Adopted = true
+	inst.Project = "A"
+	l.AddInstance(inst)()
+	require.Equal(t, []string{"A"}, l.FoldedProjects(), "discovery must not disturb folds")
+
+	l.SetFolded(nil)
+	l.SetSize(60, 30)
+	require.Contains(t, l.String(), adoptedIcon)
+}

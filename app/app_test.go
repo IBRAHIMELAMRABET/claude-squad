@@ -4,6 +4,7 @@ import (
 	"claude-squad/config"
 	"claude-squad/log"
 	"claude-squad/session"
+	"claude-squad/session/tmux"
 	"claude-squad/ui"
 	"claude-squad/ui/overlay"
 	"context"
@@ -549,4 +550,31 @@ func TestNotify(t *testing.T) {
 	h.appConfig = &config.Config{Notifications: &config.Notifications{Bell: false, Title: false}}
 	require.Nil(t, h.notify(3, 3))
 	require.Equal(t, 1, rings, "bell disabled")
+}
+
+func TestReconcileAdopted(t *testing.T) {
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	h := &home{
+		ctx:       context.Background(),
+		appConfig: &config.Config{ProjectsRoot: "/mnt/c/Projects"},
+		list:      ui.NewList(&spinner, false),
+	}
+	panes := []tmux.Pane{
+		{Session: "claudesquad_mine", ID: "%1", Command: "claude", Path: "/wt/mine"},
+		{Session: "scratch", ID: "%2", Command: "claude", Path: "/mnt/c/Projects/Fawri/Code/Backend"},
+		{Session: "shell", ID: "%3", Command: "zsh", Path: "/home/user"},
+	}
+
+	require.True(t, h.reconcileAdopted(panes))
+	require.Equal(t, 1, h.list.NumInstances(), "only the foreign claude pane is adopted")
+	adopted := h.list.GetInstances()[0]
+	require.True(t, adopted.Adopted)
+	require.Equal(t, "scratch", adopted.Title)
+	require.Equal(t, "Fawri", adopted.Project, "projects resolve from the pane path")
+
+	require.False(t, h.reconcileAdopted(panes), "nothing new: no change")
+	require.Same(t, adopted, h.list.GetInstances()[0], "the existing instance is kept, not recreated")
+
+	require.True(t, h.reconcileAdopted(panes[:1]), "the pane went away")
+	require.Zero(t, h.list.NumInstances())
 }

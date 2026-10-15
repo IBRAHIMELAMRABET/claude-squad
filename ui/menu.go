@@ -131,6 +131,13 @@ func (m *Menu) addInstanceOptions() {
 		return
 	}
 
+	// Adopted sessions can only be watched and opened.
+	if m.instance.Adopted {
+		m.options = []keys.KeyName{keys.KeyNew, keys.KeyEnter, keys.KeyTab, keys.KeyNextWaiting,
+			keys.KeyActiveOnly, keys.KeySearch, keys.KeyToggleList, keys.KeyHelp, keys.KeyQuit}
+		return
+	}
+
 	// Instance management group
 	options := []keys.KeyName{keys.KeyNew, keys.KeyKill}
 

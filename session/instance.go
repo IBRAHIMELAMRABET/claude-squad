@@ -77,6 +77,10 @@ type Instance struct {
 	LastActivity time.Time
 	// WaitReason explains a Waiting status. Not persisted.
 	WaitReason WaitReason
+	// Adopted is true for a session discovered in tmux that claude-squad did not create:
+	// it can be watched and attached to, but has no worktree and is never killed, paused,
+	// pushed or persisted.
+	Adopted bool
 	// lastScreen is the screen state seen at the previous observation.
 	lastScreen tmux.ScreenState
 	// seenAt is when the user last opened the session; hook "turn finished" events older
@@ -219,7 +223,7 @@ func NewInstance(opts InstanceOptions) (*Instance, error) {
 }
 
 func (i *Instance) RepoName() (string, error) {
-	if !i.started {
+	if !i.started || i.gitWorktree == nil {
 		return "", fmt.Errorf("cannot get repo name for instance that has not been started")
 	}
 	return i.gitWorktree.GetRepoName(), nil
@@ -384,8 +388,8 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 
 // Kill terminates the instance and cleans up all resources
 func (i *Instance) Kill() error {
-	if !i.started {
-		// If instance was never started, just return success
+	if !i.started || i.Adopted {
+		// Never started, or not ours to kill: nothing to clean up.
 		return nil
 	}
 
@@ -586,10 +590,34 @@ func (i *Instance) Attach() (chan struct{}, error) {
 	if !i.started {
 		return nil, fmt.Errorf("cannot attach instance that has not been started")
 	}
-	return i.tmuxSession.Attach()
+	if !i.Adopted {
+		return i.tmuxSession.Attach()
+	}
+	// An adopted session has no standing client: open one for the attach and close it on
+	// detach so the owner's own terminal keeps deciding the window size.
+	if err := i.tmuxSession.Restore(); err != nil {
+		return nil, err
+	}
+	ch, err := i.tmuxSession.Attach()
+	if err != nil {
+		_ = i.tmuxSession.CloseClient()
+		return nil, err
+	}
+	done := make(chan struct{})
+	go func() {
+		<-ch
+		if err := i.tmuxSession.CloseClient(); err != nil {
+			log.WarningLog.Printf("could not close client of adopted session %q: %v", i.Title, err)
+		}
+		close(done)
+	}()
+	return done, nil
 }
 
 func (i *Instance) SetPreviewSize(width, height int) error {
+	if i.Adopted {
+		return nil // the owner's terminal decides the size
+	}
 	if !i.started || i.Status == Paused {
 		return fmt.Errorf("cannot set preview size for instance that has not been started or " +
 			"is paused")
@@ -599,7 +627,7 @@ func (i *Instance) SetPreviewSize(width, height int) error {
 
 // GetGitWorktree returns the git worktree for the instance
 func (i *Instance) GetGitWorktree() (*git.GitWorktree, error) {
-	if !i.started {
+	if !i.started || i.gitWorktree == nil {
 		return nil, fmt.Errorf("cannot get git worktree for instance that has not been started")
 	}
 	return i.gitWorktree, nil
@@ -638,8 +666,8 @@ func (i *Instance) TmuxAlive() bool {
 
 // Pause stops the tmux session and removes the worktree, preserving the branch
 func (i *Instance) Pause() error {
-	if !i.started {
-		return fmt.Errorf("cannot pause instance that has not been started")
+	if !i.started || i.Adopted {
+		return fmt.Errorf("cannot pause a session claude-squad did not create")
 	}
 	if i.Status == Paused {
 		return fmt.Errorf("instance is already paused")
@@ -725,8 +753,8 @@ func (i *Instance) Pause() error {
 
 // Resume recreates the worktree and restarts the tmux session
 func (i *Instance) Resume() error {
-	if !i.started {
-		return fmt.Errorf("cannot resume instance that has not been started")
+	if !i.started || i.Adopted {
+		return fmt.Errorf("cannot resume a session claude-squad did not create")
 	}
 	if i.Status != Paused {
 		return fmt.Errorf("can only resume paused instances")
@@ -795,8 +823,8 @@ func (i *Instance) UpdateDiffStats() error {
 		return nil
 	}
 
-	if i.Status == Paused {
-		// Keep the previous diff stats if the instance is paused
+	if i.Status == Paused || i.gitWorktree == nil {
+		// Keep the previous diff stats if the instance is paused; nothing to diff without a worktree.
 		return nil
 	}
 
@@ -817,7 +845,7 @@ func (i *Instance) UpdateDiffStats() error {
 // ComputeDiff runs the expensive git diff I/O and returns the result without
 // mutating instance state. Safe to call from a background goroutine.
 func (i *Instance) ComputeDiff() *git.DiffStats {
-	if !i.started || i.Status == Paused {
+	if !i.started || i.Status == Paused || i.gitWorktree == nil {
 		return nil
 	}
 	return i.gitWorktree.Diff()
@@ -828,7 +856,7 @@ func (i *Instance) ComputeDiff() *git.DiffStats {
 // background goroutine. Use this for instances whose full diff content is not
 // currently needed so we avoid keeping large diffs in memory.
 func (i *Instance) ComputeDiffNumstat() *git.DiffStats {
-	if !i.started || i.Status == Paused {
+	if !i.started || i.Status == Paused || i.gitWorktree == nil {
 		return nil
 	}
 	return i.gitWorktree.DiffNumstat()
