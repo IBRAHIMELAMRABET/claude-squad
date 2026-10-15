@@ -83,6 +83,8 @@ type home struct {
 
 	// listHidden collapses the session list so the preview takes the full width.
 	listHidden bool
+	// lastWaitingTotal is the waiting count last written to the window title.
+	lastWaitingTotal int
 
 	// instanceStarting is true while a background instance start is in progress.
 	// Prevents double-submission and guards against interacting with a not-yet-started instance.
@@ -279,12 +281,17 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, tea.Batch(tea.WindowSize(), m.instanceChanged())
 	case metadataUpdateDoneMsg:
+		newlyWaiting := 0
 		for _, r := range msg.results {
 			// Skip instances that were paused while metadata was being computed
 			if r.instance.Status == session.Paused {
 				continue
 			}
+			wasWaiting := r.instance.NeedsAttention()
 			r.instance.ApplyObservation(r.observation, r.hook, time.Now())
+			if !wasWaiting && r.instance.NeedsAttention() {
+				newlyWaiting++
+			}
 			if r.diffStats != nil && r.diffStats.Error != nil {
 				if !strings.Contains(r.diffStats.Error.Error(), "base commit SHA not set") {
 					log.WarningLog.Printf("could not update diff stats: %v", r.diffStats.Error)
@@ -294,7 +301,10 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				r.instance.SetDiffStats(r.diffStats)
 			}
 		}
-		return m, tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir)
+		return m, tea.Batch(
+			m.notify(newlyWaiting, m.list.WaitingCount()),
+			tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir),
+		)
 	case tea.MouseMsg:
 		// Handle mouse wheel events for scrolling the diff/preview pane
 		if msg.Action == tea.MouseActionPress {
@@ -864,6 +874,27 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 	default:
 		return m, nil
 	}
+}
+
+// bell rings the terminal bell. Overridable in tests.
+var bell = func() { _, _ = os.Stdout.WriteString("") }
+
+// notify signals sessions that started waiting: a bell when at least one session just
+// started waiting, and the waiting count in the window title whenever it changes.
+func (m *home) notify(newlyWaiting, total int) tea.Cmd {
+	n := m.appConfig.GetNotifications()
+	if newlyWaiting > 0 && n.Bell {
+		bell()
+	}
+	if !n.Title || total == m.lastWaitingTotal {
+		return nil
+	}
+	m.lastWaitingTotal = total
+	title := "claude-squad"
+	if total > 0 {
+		title = fmt.Sprintf("claude-squad · %d waiting", total)
+	}
+	return tea.SetWindowTitle(title)
 }
 
 // handleFilterState edits the text filter: typed runes extend it, enter keeps it, esc

@@ -368,3 +368,9 @@ func TestWorktreeDirFor(t *testing.T) {
 		assert.Equal(t, "/tmp/wt", got)
 	})
 }
+
+func TestGetNotificationsDefaultsToOn(t *testing.T) {
+	assert.Equal(t, Notifications{Bell: true, Title: true}, (&Config{}).GetNotifications())
+	assert.Equal(t, Notifications{Bell: false, Title: true},
+		(&Config{Notifications: &Notifications{Bell: false, Title: true}}).GetNotifications())
+}

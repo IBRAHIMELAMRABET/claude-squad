@@ -531,3 +531,22 @@ func TestToggleListGivesPreviewFullWidth(t *testing.T) {
 	require.Greater(t, fullWidth, splitWidth)
 	require.NotContains(t, h.View(), "Instances", "the list is not drawn while hidden")
 }
+
+func TestNotify(t *testing.T) {
+	rings := 0
+	bell = func() { rings++ }
+	defer func() { bell = func() { _, _ = os.Stdout.WriteString("\a") } }()
+
+	h := &home{appConfig: &config.Config{}} // nil notifications: both on
+	require.Nil(t, h.notify(0, 0), "nothing changed, no title update")
+	require.Zero(t, rings)
+
+	require.NotNil(t, h.notify(1, 1), "a new waiting session updates the title")
+	require.Equal(t, 1, rings)
+	require.Nil(t, h.notify(0, 1), "same count, no title update")
+	require.NotNil(t, h.notify(0, 0), "back to zero restores the title")
+
+	h.appConfig = &config.Config{Notifications: &config.Notifications{Bell: false, Title: false}}
+	require.Nil(t, h.notify(3, 3))
+	require.Equal(t, 1, rings, "bell disabled")
+}

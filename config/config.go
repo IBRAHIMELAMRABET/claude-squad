@@ -65,6 +65,25 @@ type Config struct {
 	// DisableHooks stops cs from passing its hooks settings file to claude sessions it
 	// launches. Status then comes from the screen only.
 	DisableHooks bool `json:"disable_hooks,omitempty"`
+	// Notifications controls how cs signals that a session started waiting for you.
+	// Omitted means both signals are on.
+	Notifications *Notifications `json:"notifications,omitempty"`
+}
+
+// Notifications are the signals emitted when a session starts waiting for the user.
+type Notifications struct {
+	// Bell rings the terminal bell.
+	Bell bool `json:"bell"`
+	// Title puts the number of waiting sessions in the terminal window title.
+	Title bool `json:"title"`
+}
+
+// GetNotifications returns the notification settings, defaulting to both on.
+func (c *Config) GetNotifications() Notifications {
+	if c.Notifications == nil {
+		return Notifications{Bell: true, Title: true}
+	}
+	return *c.Notifications
 }
 
 // GetMaxInstances returns the session cap, falling back to DefaultMaxInstances.
@@ -151,6 +170,7 @@ func DefaultConfig() *Config {
 		AutoYes:            false,
 		DaemonPollInterval: 1000,
 		MaxInstances:       DefaultMaxInstances,
+		Notifications:      &Notifications{Bell: true, Title: true},
 		BranchPrefix: func() string {
 			user, err := user.Current()
 			if err != nil || user == nil || user.Username == "" {
