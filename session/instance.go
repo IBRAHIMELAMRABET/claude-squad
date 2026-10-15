@@ -26,6 +26,21 @@ const (
 	Loading
 	// Paused is if the instance is paused (worktree removed but branch preserved).
 	Paused
+	// Waiting is if the agent needs the user: a permission prompt, a question, or a turn
+	// that just finished. See WaitReason.
+	Waiting
+)
+
+// WaitReason explains why an instance is Waiting.
+type WaitReason string
+
+const (
+	// WaitPermission: the agent is blocked on a permission prompt.
+	WaitPermission WaitReason = "permission"
+	// WaitQuestion: the agent asked a question and waits for the answer.
+	WaitQuestion WaitReason = "question"
+	// WaitDone: the agent finished its turn and nobody has looked at it yet.
+	WaitDone WaitReason = "done"
 )
 
 // Instance is a running instance of claude code.
@@ -57,6 +72,10 @@ type Instance struct {
 	Project string
 	// LastActivity is the last time the session's output changed.
 	LastActivity time.Time
+	// WaitReason explains a Waiting status. Not persisted.
+	WaitReason WaitReason
+	// lastScreen is the screen state seen at the previous observation.
+	lastScreen tmux.ScreenState
 
 	// DiffStats stores the current git diff statistics
 	diffStats *git.DiffStats
@@ -364,6 +383,80 @@ func (i *Instance) HasUpdated() (updated bool, hasPrompt bool) {
 		return false, false
 	}
 	return i.tmuxSession.HasUpdated()
+}
+
+// Observe captures the pane once. Safe to call from a background goroutine.
+func (i *Instance) Observe() tmux.Observation {
+	if !i.started || i.tmuxSession == nil {
+		return tmux.Observation{}
+	}
+	return i.tmuxSession.Observe()
+}
+
+// ApplyObservation derives the status from a fresh look at the screen. A recognised screen
+// wins; otherwise output changes mean Running and silence means Ready. A turn that just
+// finished (working, then idle) becomes Waiting/done until the user looks at the session.
+// Must be called from the main event loop.
+func (i *Instance) ApplyObservation(obs tmux.Observation, now time.Time) {
+	if obs.Updated {
+		i.LastActivity = now
+	}
+	prevScreen := i.lastScreen
+	i.lastScreen = obs.Screen
+
+	switch {
+	case obs.Screen == tmux.ScreenWorking:
+		i.setWaiting("")
+		i.SetStatus(Running)
+	case obs.Screen == tmux.ScreenPermission:
+		if i.AutoYes {
+			i.TapEnter()
+			i.setWaiting("")
+			i.SetStatus(Running)
+			return
+		}
+		i.setWaiting(WaitPermission)
+	case obs.Screen == tmux.ScreenQuestion:
+		i.setWaiting(WaitQuestion)
+	case obs.Screen == tmux.ScreenIdle && prevScreen == tmux.ScreenWorking:
+		i.setWaiting(WaitDone)
+	case obs.Screen == tmux.ScreenIdle:
+		if i.Status == Waiting && i.WaitReason == WaitDone {
+			return // still unread
+		}
+		i.setWaiting("")
+		i.SetStatus(Ready)
+	case obs.Updated:
+		i.setWaiting("")
+		i.SetStatus(Running)
+	default:
+		if i.Status == Waiting {
+			return
+		}
+		i.SetStatus(Ready)
+	}
+}
+
+// setWaiting puts the instance in Waiting with the given reason, or just clears the reason
+// when it is empty.
+func (i *Instance) setWaiting(reason WaitReason) {
+	i.WaitReason = reason
+	if reason != "" {
+		i.SetStatus(Waiting)
+	}
+}
+
+// MarkSeen clears a "turn finished" wait once the user has looked at the session.
+func (i *Instance) MarkSeen() {
+	if i.Status == Waiting && i.WaitReason == WaitDone {
+		i.setWaiting("")
+		i.SetStatus(Ready)
+	}
+}
+
+// NeedsAttention reports whether the agent is waiting on the user.
+func (i *Instance) NeedsAttention() bool {
+	return i.Status == Waiting
 }
 
 // CheckAndHandleTrustPrompt checks for and dismisses the trust prompt for supported programs.

@@ -17,6 +17,7 @@ import (
 
 const readyIcon = "● "
 const pausedIcon = "⏸ "
+const waitingIcon = "! "
 const foldedIcon = "▸"
 const unfoldedIcon = "▾"
 
@@ -31,6 +32,9 @@ var removedLinesStyle = lipgloss.NewStyle().
 
 var pausedStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#888888"})
+
+var waitingStyle = lipgloss.NewStyle().Bold(true).
+	Foreground(lipgloss.AdaptiveColor{Light: "#D08700", Dark: "#FFCC00"})
 
 var titleStyle = lipgloss.NewStyle().
 	Padding(1, 1, 0, 1).
@@ -197,6 +201,8 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool) s
 		join = readyStyle.Render(readyIcon)
 	case session.Paused:
 		join = pausedStyle.Render(pausedIcon)
+	case session.Waiting:
+		join = waitingStyle.Render(waitingIcon)
 	default:
 	}
 
@@ -293,6 +299,7 @@ type listRow struct {
 	header   bool
 	project  string
 	count    int
+	waiting  int
 	folded   bool
 	instance *session.Instance
 }
@@ -308,6 +315,8 @@ func projectOf(i *session.Instance) string {
 // statusRank orders sessions inside a group: the ones needing attention first.
 func statusRank(s session.Status) int {
 	switch s {
+	case session.Waiting:
+		return 0
 	case session.Running, session.Loading:
 		return 1
 	case session.Ready:
@@ -371,7 +380,13 @@ func (l *List) rows() []listRow {
 		insts := byProject[name]
 		folded := headers && l.folded[name]
 		if headers {
-			rows = append(rows, listRow{header: true, project: name, count: len(insts), folded: folded})
+			waiting := 0
+			for _, inst := range insts {
+				if inst.NeedsAttention() {
+					waiting++
+				}
+			}
+			rows = append(rows, listRow{header: true, project: name, count: len(insts), waiting: waiting, folded: folded})
 		}
 		if folded {
 			continue
@@ -422,11 +437,14 @@ func (l *List) renderHeader(r listRow) string {
 	if c := l.projectColors[r.project]; c != "" {
 		style = style.Foreground(lipgloss.Color(c))
 	}
-	return lipgloss.JoinHorizontal(
-		lipgloss.Left,
+	parts := []string{
 		style.Render(fmt.Sprintf("%s %s", icon, r.project)),
 		groupCountStyle.Render(fmt.Sprintf("%d", r.count)),
-	)
+	}
+	if r.waiting > 0 {
+		parts = append(parts, waitingStyle.Render(fmt.Sprintf(" · %d waiting", r.waiting)))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
 
 func (l *List) String() string {

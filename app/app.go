@@ -6,6 +6,7 @@ import (
 	"claude-squad/log"
 	"claude-squad/session"
 	"claude-squad/session/git"
+	"claude-squad/session/tmux"
 	"claude-squad/ui"
 	"claude-squad/ui/overlay"
 	"context"
@@ -262,14 +263,7 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if r.instance.Status == session.Paused {
 				continue
 			}
-			if r.updated {
-				r.instance.SetStatus(session.Running)
-				r.instance.LastActivity = time.Now()
-			} else if r.hasPrompt {
-				r.instance.TapEnter()
-			} else {
-				r.instance.SetStatus(session.Ready)
-			}
+			r.instance.ApplyObservation(r.observation, time.Now())
 			if r.diffStats != nil && r.diffStats.Error != nil {
 				if !strings.Contains(r.diffStats.Error.Error(), "base commit SHA not set") {
 					log.WarningLog.Printf("could not update diff stats: %v", r.diffStats.Error)
@@ -809,6 +803,8 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			})
 			return m, nil
 		}
+		// Looking at a session clears its "turn finished" flag.
+		selected.MarkSeen()
 		// Show help screen before attaching
 		m.showHelpScreen(helpTypeInstanceAttach{}, func() {
 			ch, err := m.list.Attach()
@@ -915,10 +911,9 @@ func (m *home) runBranchSearch(filter string, version uint64) tea.Cmd {
 // instanceMetaResult holds the results of a single instance's metadata update,
 // computed in a background goroutine.
 type instanceMetaResult struct {
-	instance  *session.Instance
-	updated   bool
-	hasPrompt bool
-	diffStats *git.DiffStats
+	instance    *session.Instance
+	observation tmux.Observation
+	diffStats   *git.DiffStats
 }
 
 // metadataUpdateDoneMsg is sent when the background metadata update completes.
@@ -979,7 +974,7 @@ func tickUpdateMetadataCmd(active []*session.Instance, selected *session.Instanc
 				defer wg.Done()
 				r := &results[i]
 				r.instance = instance
-				r.updated, r.hasPrompt = instance.HasUpdated()
+				r.observation = instance.Observe()
 				if instance == selected {
 					r.diffStats = instance.ComputeDiff()
 				} else {

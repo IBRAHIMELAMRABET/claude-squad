@@ -205,3 +205,18 @@ func TestRenderShowsHeaderAndRepo(t *testing.T) {
 	require.Contains(t, out, "▾ Fawri")
 	require.Contains(t, out, "a1")
 }
+
+func TestWaitingSortsFirstAndCountsInHeader(t *testing.T) {
+	l := newTestList("busy", "needs-you", "idle")
+	for _, i := range l.items {
+		i.Project = "Fawri"
+	}
+	l.items[0].Status = session.Running
+	l.items[1].Status = session.Waiting
+	l.items[2].Status = session.Ready
+	l.SetSize(60, 30)
+
+	require.Equal(t, []string{"#Fawri", "needs-you", "busy", "idle"}, rowLabels(l))
+	require.Equal(t, 1, l.rows()[0].waiting)
+	require.Contains(t, l.String(), "1 waiting")
+}

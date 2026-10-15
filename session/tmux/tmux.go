@@ -165,7 +165,10 @@ func (t *TmuxSession) CheckAndHandleTrustPrompt() bool {
 	}
 
 	if strings.HasSuffix(t.program, ProgramClaude) {
+		// Claude Code has used several wordings for its folder trust screen; the current one
+		// asks "Is this a project you created or one you trust?" with "Yes, I trust this folder".
 		if strings.Contains(content, "Do you trust the files in this folder?") ||
+			strings.Contains(content, "Yes, I trust this folder") ||
 			strings.Contains(content, "new MCP server") {
 			if err := t.TapEnter(); err != nil {
 				log.ErrorLog.Printf("could not tap enter on trust/MCP screen: %v", err)
@@ -241,29 +244,35 @@ func (t *TmuxSession) SendKeys(keys string) error {
 	return err
 }
 
-// HasUpdated checks if the tmux pane content has changed since the last tick. It also returns true if
-// the tmux pane has a prompt for aider or claude code.
-func (t *TmuxSession) HasUpdated() (updated bool, hasPrompt bool) {
+// Observation is one look at the pane: whether its content changed since the previous
+// look, and what the screen says the agent is doing.
+type Observation struct {
+	Updated bool
+	Screen  ScreenState
+}
+
+// Observe captures the pane once and reports whether it changed since the last call and
+// how the screen classifies (see ScreenState).
+func (t *TmuxSession) Observe() Observation {
 	content, err := t.CapturePaneContent()
 	if err != nil {
 		log.ErrorLog.Printf("error capturing pane content in status monitor: %v", err)
-		return false, false
+		return Observation{}
 	}
 
-	// Only set hasPrompt for claude and aider. Use these strings to check for a prompt.
-	if t.program == ProgramClaude {
-		hasPrompt = strings.Contains(content, "No, and tell Claude what to do differently")
-	} else if strings.HasPrefix(t.program, ProgramAider) {
-		hasPrompt = strings.Contains(content, "(Y)es/(N)o/(D)on't ask again")
-	} else if strings.HasPrefix(t.program, ProgramGemini) {
-		hasPrompt = strings.Contains(content, "Yes, allow once")
+	obs := Observation{Screen: classifyScreen(t.program, content)}
+	if hash := t.monitor.hash(content); !bytes.Equal(hash, t.monitor.prevOutputHash) {
+		t.monitor.prevOutputHash = hash
+		obs.Updated = true
 	}
+	return obs
+}
 
-	if !bytes.Equal(t.monitor.hash(content), t.monitor.prevOutputHash) {
-		t.monitor.prevOutputHash = t.monitor.hash(content)
-		return true, hasPrompt
-	}
-	return false, hasPrompt
+// HasUpdated checks if the tmux pane content has changed since the last tick. It also returns true if
+// the tmux pane shows a permission prompt for claude, aider or gemini.
+func (t *TmuxSession) HasUpdated() (updated bool, hasPrompt bool) {
+	obs := t.Observe()
+	return obs.Updated, obs.Screen == ScreenPermission
 }
 
 func (t *TmuxSession) Attach() (chan struct{}, error) {
