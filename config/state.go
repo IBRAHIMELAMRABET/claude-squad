@@ -41,6 +41,8 @@ type UIPrefs struct {
 	FoldedProjects []string `json:"folded_projects,omitempty"`
 	// ActiveOnly hides paused sessions from the list.
 	ActiveOnly bool `json:"active_only,omitempty"`
+	// ListHidden collapses the session list so the preview takes the full width.
+	ListHidden bool `json:"list_hidden,omitempty"`
 }
 
 // StateManager combines instance storage and app state management

@@ -37,6 +37,9 @@ const (
 	KeySearch      // Start typing a text filter.
 	KeyFilterKeep  // Leave filter mode keeping the filter (enter).
 	KeyFilterClear // Leave filter mode clearing the filter (esc).
+
+	// Layout keybindings
+	KeyToggleList // Hide/show the session list pane.
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -50,6 +53,7 @@ var GlobalKeyStringsMap = map[string]KeyName{
 	" ":          KeyFold,
 	"a":          KeyActiveOnly,
 	"/":          KeySearch,
+	"z":          KeyToggleList,
 	"N":          KeyPrompt,
 	"enter":      KeyEnter,
 	"o":          KeyEnter,
@@ -141,6 +145,10 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyFilterClear: key.NewBinding(
 		key.WithKeys("esc"),
 		key.WithHelp("esc", "clear filter"),
+	),
+	KeyToggleList: key.NewBinding(
+		key.WithKeys("z"),
+		key.WithHelp("z", "list"),
 	),
 
 	// -- Special keybindings --

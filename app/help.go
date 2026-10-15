@@ -47,6 +47,7 @@ func (h helpTypeGeneral) toContent() string {
 		keyStyle.Render("space")+descStyle.Render("     - Fold/unfold the selected project group"),
 		keyStyle.Render("a")+descStyle.Render("         - Show active sessions only (hide paused)"),
 		keyStyle.Render("/")+descStyle.Render("         - Filter sessions by text (enter keeps, esc clears)"),
+		keyStyle.Render("z")+descStyle.Render("         - Hide/show the session list (full-width preview)"),
 		keyStyle.Render("↵/o")+descStyle.Render("       - Attach to the selected session"),
 		keyStyle.Render("ctrl-q")+descStyle.Render("    - Detach from session"),
 		"",

@@ -508,3 +508,26 @@ func TestFilterModeKeys(t *testing.T) {
 	press(runes("a"))
 	require.False(t, list.ActiveOnly())
 }
+
+// Hiding the list hands its width to the preview pane.
+func TestToggleListGivesPreviewFullWidth(t *testing.T) {
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	h := &home{
+		ctx:          context.Background(),
+		list:         ui.NewList(&spinner, false),
+		menu:         ui.NewMenu(),
+		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
+		errBox:       ui.NewErrBox(),
+	}
+	size := tea.WindowSizeMsg{Width: 200, Height: 50}
+
+	h.updateHandleWindowSizeEvent(size)
+	splitWidth, _ := h.tabbedWindow.GetPreviewSize()
+
+	h.listHidden = true
+	h.updateHandleWindowSizeEvent(size)
+	fullWidth, _ := h.tabbedWindow.GetPreviewSize()
+
+	require.Greater(t, fullWidth, splitWidth)
+	require.NotContains(t, h.View(), "Instances", "the list is not drawn while hidden")
+}

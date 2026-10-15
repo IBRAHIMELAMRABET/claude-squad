@@ -81,6 +81,9 @@ type home struct {
 	// keySent is used to manage underlining menu items
 	keySent bool
 
+	// listHidden collapses the session list so the preview takes the full width.
+	listHidden bool
+
 	// instanceStarting is true while a background instance start is in progress.
 	// Prevents double-submission and guards against interacting with a not-yet-started instance.
 	instanceStarting bool
@@ -161,6 +164,7 @@ func newHome(ctx context.Context, program string, autoYes bool) *home {
 	h.list.SetProjectColors(projectColors(appConfig))
 	h.list.SetFolded(appState.GetUIPrefs().FoldedProjects)
 	h.list.SetActiveOnly(appState.GetUIPrefs().ActiveOnly)
+	h.listHidden = appState.GetUIPrefs().ListHidden
 
 	return h
 }
@@ -181,6 +185,7 @@ func (m *home) saveUIPrefs() {
 	prefs := m.appState.GetUIPrefs()
 	prefs.FoldedProjects = m.list.FoldedProjects()
 	prefs.ActiveOnly = m.list.ActiveOnly()
+	prefs.ListHidden = m.listHidden
 	if err := m.appState.SetUIPrefs(prefs); err != nil {
 		log.WarningLog.Printf("failed to save UI preferences: %v", err)
 	}
@@ -189,8 +194,11 @@ func (m *home) saveUIPrefs() {
 // updateHandleWindowSizeEvent sets the sizes of the components.
 // The components will try to render inside their bounds.
 func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
-	// List takes 30% of width, preview takes 70%
+	// List takes 30% of width, preview takes 70%; a hidden list gives the preview everything.
 	listWidth := int(float32(msg.Width) * 0.3)
+	if m.listHidden {
+		listWidth = 0
+	}
 	tabsWidth := msg.Width - listWidth
 
 	// Menu takes 10% of height, list and window take 90%
@@ -799,6 +807,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.state = stateFilter
 		m.menu.SetState(ui.StateFilter)
 		return m, nil
+	case keys.KeyToggleList:
+		m.listHidden = !m.listHidden
+		m.saveUIPrefs()
+		return m, tea.Batch(tea.WindowSize(), m.instanceChanged())
 	case keys.KeyResume:
 		selected := m.list.GetSelectedInstance()
 		if selected == nil || selected.Status == session.Loading {
@@ -1108,9 +1120,12 @@ func (m *home) confirmAction(message string, action tea.Cmd) tea.Cmd {
 }
 
 func (m *home) View() string {
-	listWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(m.list.String())
 	previewWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(m.tabbedWindow.String())
-	listAndPreview := lipgloss.JoinHorizontal(lipgloss.Top, listWithPadding, previewWithPadding)
+	listAndPreview := previewWithPadding
+	if !m.listHidden {
+		listWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(m.list.String())
+		listAndPreview = lipgloss.JoinHorizontal(lipgloss.Top, listWithPadding, previewWithPadding)
+	}
 
 	mainView := lipgloss.JoinVertical(
 		lipgloss.Center,
