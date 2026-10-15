@@ -303,3 +303,68 @@ func TestSaveConfig(t *testing.T) {
 		assert.Equal(t, testConfig.BranchPrefix, loadedConfig.BranchPrefix)
 	})
 }
+
+func TestGetMaxInstances(t *testing.T) {
+	assert.Equal(t, DefaultMaxInstances, (&Config{}).GetMaxInstances(), "unset falls back to the default")
+	assert.Equal(t, DefaultMaxInstances, (&Config{MaxInstances: -3}).GetMaxInstances())
+	assert.Equal(t, 25, (&Config{MaxInstances: 25}).GetMaxInstances())
+}
+
+func TestExpandHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	got, err := ExpandHome("~/wt")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, "wt"), got)
+
+	got, err = ExpandHome("~")
+	require.NoError(t, err)
+	assert.Equal(t, home, got)
+
+	got, err = ExpandHome("/abs/path")
+	require.NoError(t, err)
+	assert.Equal(t, "/abs/path", got)
+
+	got, err = ExpandHome("~user/x")
+	require.NoError(t, err)
+	assert.Equal(t, "~user/x", got, "only the current user's ~ is expanded")
+}
+
+func TestWorktreeDirFor(t *testing.T) {
+	configDir, err := GetConfigDir()
+	require.NoError(t, err)
+
+	t.Run("defaults to the global worktrees directory", func(t *testing.T) {
+		got, err := (&Config{}).WorktreeDirFor("/repos/app")
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(configDir, "worktrees"), got)
+	})
+
+	t.Run("worktree_dir overrides the global directory", func(t *testing.T) {
+		got, err := (&Config{WorktreeDir: "/tmp/wt"}).WorktreeDirFor("/repos/app")
+		require.NoError(t, err)
+		assert.Equal(t, "/tmp/wt", got)
+	})
+
+	t.Run("worktree_dir expands ~", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		require.NoError(t, err)
+		got, err := (&Config{WorktreeDir: "~/wt"}).WorktreeDirFor("/repos/app")
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(home, "wt"), got)
+	})
+
+	t.Run("worktree_next_to_repo wins and nests under the repo name", func(t *testing.T) {
+		cfg := &Config{WorktreeDir: "/tmp/wt", WorktreeNextToRepo: true}
+		got, err := cfg.WorktreeDirFor("/mnt/c/Projects/Fawri/Code/Backend")
+		require.NoError(t, err)
+		assert.Equal(t, "/mnt/c/Projects/Fawri/Code/.claude-squad-worktrees/Backend", got)
+	})
+
+	t.Run("worktree_next_to_repo without a repo falls back", func(t *testing.T) {
+		got, err := (&Config{WorktreeDir: "/tmp/wt", WorktreeNextToRepo: true}).WorktreeDirFor("")
+		require.NoError(t, err)
+		assert.Equal(t, "/tmp/wt", got)
+	})
+}

@@ -8,13 +8,11 @@ import (
 	"time"
 )
 
-func getWorktreeDirectory() (string, error) {
-	configDir, err := config.GetConfigDir()
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(configDir, "worktrees"), nil
+// getWorktreeDirectory returns the directory that holds worktrees for repoPath, honouring
+// the worktree_dir and worktree_next_to_repo settings. An empty repoPath yields the
+// global directory.
+func getWorktreeDirectory(repoPath string) (string, error) {
+	return config.LoadConfig().WorktreeDirFor(repoPath)
 }
 
 // GitWorktree manages git worktree operations for a session
@@ -58,7 +56,7 @@ func resolveWorktreePaths(repoPath string, branchName string) (resolvedRepo stri
 		return "", "", err
 	}
 
-	worktreeDir, err := getWorktreeDirectory()
+	worktreeDir, err := getWorktreeDirectory(resolvedRepo)
 	if err != nil {
 		return "", "", err
 	}

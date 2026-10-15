@@ -15,6 +15,11 @@ import (
 const (
 	ConfigFileName = "config.json"
 	defaultProgram = "claude"
+	// DefaultMaxInstances is the session cap used when max_instances is unset.
+	DefaultMaxInstances = 10
+	// worktreesNextToRepoDir is the folder created beside a repository when
+	// worktree_next_to_repo is enabled.
+	worktreesNextToRepoDir = ".claude-squad-worktrees"
 )
 
 // GetConfigDir returns the path to the application's configuration directory
@@ -44,6 +49,50 @@ type Config struct {
 	BranchPrefix string `json:"branch_prefix"`
 	// Profiles is a list of named program profiles.
 	Profiles []Profile `json:"profiles,omitempty"`
+	// MaxInstances caps the number of sessions. Zero falls back to DefaultMaxInstances.
+	MaxInstances int `json:"max_instances"`
+	// WorktreeDir is where worktrees are created. Empty means <config dir>/worktrees.
+	// A leading "~" is expanded to the home directory.
+	WorktreeDir string `json:"worktree_dir,omitempty"`
+	// WorktreeNextToRepo places each worktree under ".claude-squad-worktrees/<repo>" beside
+	// its repository instead of WorktreeDir, keeping worktrees on the repo's filesystem.
+	WorktreeNextToRepo bool `json:"worktree_next_to_repo,omitempty"`
+}
+
+// GetMaxInstances returns the session cap, falling back to DefaultMaxInstances.
+func (c *Config) GetMaxInstances() int {
+	if c.MaxInstances <= 0 {
+		return DefaultMaxInstances
+	}
+	return c.MaxInstances
+}
+
+// WorktreeDirFor returns the directory in which worktrees for repoPath are created.
+// repoPath may be empty, in which case the global worktree directory is returned.
+func (c *Config) WorktreeDirFor(repoPath string) (string, error) {
+	if c.WorktreeNextToRepo && repoPath != "" {
+		return filepath.Join(filepath.Dir(repoPath), worktreesNextToRepoDir, filepath.Base(repoPath)), nil
+	}
+	if c.WorktreeDir != "" {
+		return ExpandHome(c.WorktreeDir)
+	}
+	configDir, err := GetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "worktrees"), nil
+}
+
+// ExpandHome replaces a leading "~" with the user's home directory.
+func ExpandHome(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to expand ~ in %q: %w", path, err)
+	}
+	return filepath.Join(home, strings.TrimPrefix(path, "~")), nil
 }
 
 // GetProgram returns the program to run. If Profiles is non-empty and
@@ -93,6 +142,7 @@ func DefaultConfig() *Config {
 		DefaultProgram:     program,
 		AutoYes:            false,
 		DaemonPollInterval: 1000,
+		MaxInstances:       DefaultMaxInstances,
 		BranchPrefix: func() string {
 			user, err := user.Current()
 			if err != nil || user == nil || user.Username == "" {

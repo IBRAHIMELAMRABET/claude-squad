@@ -11,13 +11,8 @@ import (
 
 // Setup creates a new worktree for the session
 func (g *GitWorktree) Setup() error {
-	// Ensure worktrees directory exists early (can be done in parallel with branch check)
-	worktreesDir, err := getWorktreeDirectory()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree directory: %w", err)
-	}
-
-	if err := os.MkdirAll(worktreesDir, 0755); err != nil {
+	// Ensure the worktree's parent directory exists early (can be done in parallel with branch check)
+	if err := os.MkdirAll(filepath.Dir(g.worktreePath), 0755); err != nil {
 		return err
 	}
 
@@ -28,8 +23,7 @@ func (g *GitWorktree) Setup() error {
 	}
 
 	// Check if branch exists using git CLI (much faster than go-git PlainOpen)
-	_, err = g.runGitCommand(g.repoPath, "show-ref", "--verify", fmt.Sprintf("refs/heads/%s", g.branchName))
-	if err == nil {
+	if _, err := g.runGitCommand(g.repoPath, "show-ref", "--verify", fmt.Sprintf("refs/heads/%s", g.branchName)); err == nil {
 		return g.setupFromExistingBranch()
 	}
 	return g.setupNewWorktree()
@@ -169,7 +163,7 @@ func (g *GitWorktree) Prune() error {
 
 // CleanupWorktrees removes all worktrees and their associated branches
 func CleanupWorktrees() error {
-	worktreesDir, err := getWorktreeDirectory()
+	worktreesDir, err := getWorktreeDirectory("")
 	if err != nil {
 		return fmt.Errorf("failed to get worktree directory: %w", err)
 	}
