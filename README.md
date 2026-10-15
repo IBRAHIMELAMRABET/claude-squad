@@ -2,6 +2,12 @@
 
 [Claude Squad](https://smtg-ai.github.io/claude-squad/) is a terminal app that manages multiple [Claude Code](https://github.com/anthropics/claude-code), [Codex](https://github.com/openai/codex), [Gemini](https://github.com/google-gemini/gemini-cli) (and other local agents including [Aider](https://github.com/Aider-AI/aider)) in separate workspaces, allowing you to work on multiple tasks simultaneously.
 
+> **This is a modified fork** of [smtg-ai/claude-squad](https://github.com/smtg-ai/claude-squad).
+> It adds a project-grouped session list, "waiting for you" detection, filters, a collapsible
+> list pane, adoption of Claude sessions started outside `cs`, and in-place sessions.
+> The changes are listed in [Modifications in this fork](#modifications-in-this-fork), together
+> with how to configure them and how to pull upstream updates. The license is unchanged
+> (AGPL-3.0, see [LICENSE.md](LICENSE.md)).
 
 ![Claude Squad Screenshot](assets/screenshot.png)
 
@@ -19,35 +25,21 @@ https://github.com/user-attachments/assets/aef18253-e58f-4525-9032-f5a3d66c975a
 
 ### Installation
 
-Both Homebrew and manual installation will install Claude Squad as `cs` on your system.
-
-#### Homebrew
+The fork is installed from source (Go 1.25 or newer, tmux and git):
 
 ```bash
-brew install claude-squad
-ln -s "$(brew --prefix)/bin/claude-squad" "$(brew --prefix)/bin/cs"
+git clone https://github.com/IBRAHIMELAMRABET/claude-squad.git
+cd claude-squad
+go build -o ~/.local/bin/cs .
 ```
 
-#### Manual
-
-Claude Squad can also be installed by running the following command:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/smtg-ai/claude-squad/main/install.sh | bash
-```
-
-This puts the `cs` binary in `~/.local/bin`.
-
-To use a custom name for the binary:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/smtg-ai/claude-squad/main/install.sh | bash -s -- --name <your-binary-name>
-```
+The upstream project is also available through Homebrew (`brew install claude-squad`) and an
+install script, but those give you the upstream binary, not this fork.
 
 ### Prerequisites
 
 - [tmux](https://github.com/tmux/tmux/wiki/Installing)
-- [gh](https://cli.github.com/)
+- [gh](https://cli.github.com/) (only for `p`, push)
 
 ### Usage
 
@@ -60,6 +52,7 @@ Available Commands:
   completion  Generate the autocompletion script for the specified shell
   debug       Print debug information like config paths
   help        Help about any command
+  hook        Record a Claude Code hook event (run by Claude, not by hand)
   reset       Reset all stored instances
   version     Print the version number of claude-squad
 
@@ -76,6 +69,9 @@ cs
 ```
 NOTE: The default program is `claude` and we recommend using the latest version.
 
+`cs` normally runs from inside a git repository. With `projects` or `projects_root` configured
+(see below) it also starts anywhere else, and new sessions are created in a repository you pick.
+
 <br />
 
 <b>Using Claude Squad with other AI assistants:</b>
@@ -89,21 +85,29 @@ NOTE: The default program is `claude` and we recommend using the latest version.
 <br />
 
 #### Menu
-The menu at the bottom of the screen shows available commands: 
+The menu at the bottom of the screen shows available commands:
 
 ##### Instance/Session Management
 - `n` - Create a new session
 - `N` - Create a new session with a prompt
 - `D` - Kill (delete) the selected session
 - `↑/j`, `↓/k` - Navigate between sessions
+- While naming a new session: `←/→` pick the repository, `tab` switch between worktree and in-place
 
 ##### Actions
 - `↵/o` - Attach to the selected session to reprompt
 - `ctrl-q` - Detach from session
-- `s` - Commit and push branch to github
+- `p` - Commit and push branch to github
 - `c` - Checkout. Commits changes and pauses the session
 - `r` - Resume a paused session
 - `?` - Show help menu
+
+##### List (fork)
+- `space` - Fold/unfold the selected project group
+- `a` - Show active sessions only (hide paused)
+- `/` - Filter sessions by text; `enter` keeps the filter, `esc` clears it
+- `w` - Jump to the next session waiting for you
+- `z` - Hide/show the session list (full-width preview)
 
 ##### Navigation
 - `tab` - Switch between preview tab and diff tab
@@ -139,6 +143,104 @@ Each profile has two fields:
 | `program` | Shell command used to launch the agent for that profile  |
 
 If no profiles are defined, Claude Squad uses `default_program` directly as the launch command (the default is `claude`).
+
+#### Fork settings
+
+All of these are optional; without them the fork behaves like upstream plus grouping.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `projects_root` | unset | Directory whose first-level folders name projects: a repository at `<root>/<Project>/...` belongs to `<Project>`. |
+| `projects` | `[]` | Explicit projects, checked before the folder rule. Each has a `name`, an optional `color` (hex) for its header, and `paths`: directories (matching everything beneath them) or glob patterns (`dir/**` matches everything under `dir`). |
+| `worktree_dir` | `~/.claude-squad/worktrees` | Where worktrees are created. `~` is expanded. |
+| `worktree_next_to_repo` | `false` | Put each worktree under `.claude-squad-worktrees/<repo>` beside its repository, so repo and worktree share a filesystem (useful for `/mnt/c` repositories under WSL). |
+| `default_mode` | `"worktree"` | `"inplace"` makes new sessions run directly in the repository on its current branch. `tab` while naming a session switches per session. |
+| `max_instances` | `10` | Maximum number of sessions. |
+| `disable_hooks` | `false` | Do not pass the generated hooks settings file to `claude`; status then comes from the screen only. |
+| `notifications` | `{"bell": true, "title": true}` | Ring the terminal bell when a session starts waiting, and keep the waiting count in the window title. |
+| `disable_adopt` | `false` | Do not list agent sessions running in tmux sessions `cs` did not create. |
+| `adopt_programs` | `["claude"]` | Foreground program names that qualify a foreign tmux pane for adoption. |
+
+Example:
+
+```json
+{
+  "default_program": "claude",
+  "projects_root": "/home/me/Projects",
+  "projects": [
+    { "name": "Infra", "color": "#4C9AFF", "paths": ["~/infra", "/srv/ops/**"] },
+    { "name": "Shop",  "color": "#F5A623", "paths": ["/home/me/Projects/Platform/Shop*"] }
+  ],
+  "worktree_next_to_repo": true,
+  "default_mode": "worktree",
+  "max_instances": 20,
+  "notifications": { "bell": true, "title": true }
+}
+```
+
+Folds, the active-only filter and the hidden list are remembered in `~/.claude-squad/state.json`.
+
+#### How "waiting for you" is detected
+
+Claude sessions started by `cs` are launched with `--settings ~/.claude-squad/hooks.json`, a
+generated file that makes Claude Code run `cs hook` on its `UserPromptSubmit`, `PreToolUse`,
+`PostToolUse`, `PermissionRequest`, `Notification`, `Stop` and `SessionEnd` events. The hook
+records the event per tmux pane under `~/.claude-squad/status/`, and the list shows `!` with
+a "waiting" count for sessions blocked on a permission prompt, a question, or whose turn
+finished and has not been opened since. Settings passed with `--settings` are merged with your
+own hooks, not replacing them.
+
+Sessions that `cs` did not start (adopted ones) get the same precision if you add the hooks
+to your global Claude settings once:
+
+```bash
+cs hook --print   # paste the "hooks" entries into ~/.claude/settings.json
+```
+
+Without hooks, `cs` falls back to reading Claude's screen: "esc to interrupt" means working,
+its permission and selection dialogs mean waiting, "? for shortcuts" means idle. That fallback
+depends on Claude Code's wording and may lag behind new Claude versions.
+
+#### Running under WSL
+
+tmux lives inside the WSL distribution. When no WSL terminal stays open, Windows stops the
+distribution after its idle timeout and every tmux session dies with it; `cs` then shows those
+sessions as paused and `r` resumes them. To keep sessions alive, keep a WSL terminal open or
+raise `vmIdleTimeout` in `%USERPROFILE%\.wslconfig`. Systemd-enabled distributions also wipe
+`/tmp` at boot, which is where `cs` writes its log.
+
+### Modifications in this fork
+
+Changes made in October 2026 on top of upstream v1.0.20 (AGPL-3.0 §5 notice):
+
+- Sessions are grouped by project (`projects` / `projects_root`), ordered by status then last
+  activity, with foldable headers, repository name and a last-activity age on every row.
+- A `Waiting` status (permission prompt, question, unread finished turn) detected from Claude
+  Code hook events first and from the screen as a fallback; `!` markers, per-group and global
+  waiting counts, `w` to jump, bell and window-title notifications.
+- Filters: `a` (active only) and `/` (type-to-filter). `z` hides the list pane.
+- Adoption of agent sessions running in tmux sessions `cs` did not create (watch and open only).
+- In-place sessions without a worktree; a repository picker when creating a session; `cs` can
+  start outside a git repository once projects are configured.
+- Config keys `max_instances`, `worktree_dir`, `worktree_next_to_repo`, `default_mode`,
+  `disable_hooks`, `notifications`, `disable_adopt`, `adopt_programs`.
+- Fixes carried: prompt detection compared the full program path to `claude`; the folder-trust
+  auto-dismiss used an outdated wording. Shift+J/K manual reordering was removed because the
+  order is now derived.
+
+Nothing in the fork is specific to one person or company: anything personal lives in
+`~/.claude-squad/config.json`.
+
+#### Keeping up with upstream
+
+```bash
+git remote add upstream https://github.com/smtg-ai/claude-squad.git   # once
+git fetch upstream
+git rebase upstream/main      # or: git merge upstream/main
+go build -o ~/.local/bin/cs . && go test ./...
+```
+
+The fork's commits are small and self-contained (one feature each) to keep rebases manageable.
 
 ### FAQs
 
