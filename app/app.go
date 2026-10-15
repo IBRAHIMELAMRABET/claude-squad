@@ -2,6 +2,7 @@ package app
 
 import (
 	"claude-squad/config"
+	"claude-squad/hooks"
 	"claude-squad/keys"
 	"claude-squad/log"
 	"claude-squad/session"
@@ -61,6 +62,8 @@ type home struct {
 	appConfig *config.Config
 	// appState stores persistent application state like seen help screens
 	appState config.AppState
+	// statusDir holds the hook status files written by `cs hook`
+	statusDir string
 
 	// -- State --
 
@@ -116,8 +119,14 @@ func newHome(ctx context.Context, program string, autoYes bool) *home {
 		os.Exit(1)
 	}
 
+	statusDir, err := hooks.StatusDir()
+	if err != nil {
+		log.WarningLog.Printf("hook status disabled: %v", err)
+	}
+
 	h := &home{
 		ctx:          ctx,
+		statusDir:    statusDir,
 		spinner:      spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		menu:         ui.NewMenu(),
 		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
@@ -211,7 +220,7 @@ func (m *home) Init() tea.Cmd {
 			time.Sleep(100 * time.Millisecond)
 			return previewTickMsg{}
 		},
-		tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance()),
+		tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir),
 	)
 }
 
@@ -263,7 +272,7 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if r.instance.Status == session.Paused {
 				continue
 			}
-			r.instance.ApplyObservation(r.observation, time.Now())
+			r.instance.ApplyObservation(r.observation, r.hook, time.Now())
 			if r.diffStats != nil && r.diffStats.Error != nil {
 				if !strings.Contains(r.diffStats.Error.Error(), "base commit SHA not set") {
 					log.WarningLog.Printf("could not update diff stats: %v", r.diffStats.Error)
@@ -273,7 +282,7 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				r.instance.SetDiffStats(r.diffStats)
 			}
 		}
-		return m, tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance())
+		return m, tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir)
 	case tea.MouseMsg:
 		// Handle mouse wheel events for scrolling the diff/preview pane
 		if msg.Action == tea.MouseActionPress {
@@ -715,8 +724,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 				return fmt.Errorf("instance %s is currently checked out", selected.Title)
 			}
 
-			// Clean up terminal session for this instance
+			// Clean up terminal session and hook status for this instance
 			m.tabbedWindow.CleanupTerminalForInstance(selected.Title)
+			hooks.Remove(m.statusDir, selected.PaneID())
 
 			// Delete from storage first
 			if err := m.storage.DeleteInstance(selected.Title); err != nil {
@@ -913,6 +923,7 @@ func (m *home) runBranchSearch(filter string, version uint64) tea.Cmd {
 type instanceMetaResult struct {
 	instance    *session.Instance
 	observation tmux.Observation
+	hook        *hooks.Status
 	diffStats   *git.DiffStats
 }
 
@@ -958,7 +969,7 @@ func (m *home) snapshotActiveInstances() []*session.Instance {
 // Only the selected instance gets a full diff (with Content); the rest get a
 // lightweight numstat-only summary. This keeps per-instance memory bounded
 // since the diff pane only ever renders the selected one.
-func tickUpdateMetadataCmd(active []*session.Instance, selected *session.Instance) tea.Cmd {
+func tickUpdateMetadataCmd(active []*session.Instance, selected *session.Instance, statusDir string) tea.Cmd {
 	return func() tea.Msg {
 		time.Sleep(500 * time.Millisecond)
 
@@ -975,6 +986,11 @@ func tickUpdateMetadataCmd(active []*session.Instance, selected *session.Instanc
 				r := &results[i]
 				r.instance = instance
 				r.observation = instance.Observe()
+				if statusDir != "" {
+					if st, ok := hooks.Read(statusDir, instance.PaneID()); ok {
+						r.hook = &st
+					}
+				}
 				if instance == selected {
 					r.diffStats = instance.ComputeDiff()
 				} else {

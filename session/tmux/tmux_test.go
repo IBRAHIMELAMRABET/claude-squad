@@ -119,3 +119,17 @@ func TestRestoreAttachesWhenSessionExists(t *testing.T) {
 	require.Len(t, ptyFactory.cmds, 1)
 	require.Contains(t, ptyFactory.cmds[0].String(), "attach-session")
 }
+
+func TestPaneID(t *testing.T) {
+	exec := cmd_test.MockCmdExec{
+		OutputFunc: func(c *exec.Cmd) ([]byte, error) {
+			require.Contains(t, c.String(), "list-panes")
+			require.Contains(t, c.String(), "-t =claudesquad_sess")
+			return []byte("%7\n"), nil
+		},
+	}
+	s := NewTmuxSessionWithDeps("sess", "claude", &MockPtyFactory{t: t}, exec)
+	id, err := s.PaneID()
+	require.NoError(t, err)
+	require.Equal(t, "%7", id)
+}

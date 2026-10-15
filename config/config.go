@@ -62,6 +62,9 @@ type Config struct {
 	ProjectsRoot string `json:"projects_root,omitempty"`
 	// Projects maps repositories to named groups. See Project and ProjectFor.
 	Projects []Project `json:"projects,omitempty"`
+	// DisableHooks stops cs from passing its hooks settings file to claude sessions it
+	// launches. Status then comes from the screen only.
+	DisableHooks bool `json:"disable_hooks,omitempty"`
 }
 
 // GetMaxInstances returns the session cap, falling back to DefaultMaxInstances.

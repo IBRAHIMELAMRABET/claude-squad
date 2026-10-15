@@ -2,6 +2,7 @@ package session
 
 import (
 	"claude-squad/cmd/cmd_test"
+	"claude-squad/hooks"
 	"claude-squad/log"
 	"claude-squad/session/tmux"
 	"fmt"
@@ -83,7 +84,7 @@ func TestApplyObservation(t *testing.T) {
 	require.NoError(t, err)
 	now := time.Now()
 	apply := func(screen tmux.ScreenState, updated bool) {
-		inst.ApplyObservation(tmux.Observation{Screen: screen, Updated: updated}, now)
+		inst.ApplyObservation(tmux.Observation{Screen: screen, Updated: updated}, nil, now)
 	}
 
 	apply(tmux.ScreenWorking, true)
@@ -129,7 +130,62 @@ func TestApplyObservationAutoYesAcceptsPrompts(t *testing.T) {
 	require.NoError(t, err)
 	inst.AutoYes = true
 
-	inst.ApplyObservation(tmux.Observation{Screen: tmux.ScreenPermission}, time.Now())
+	inst.ApplyObservation(tmux.Observation{Screen: tmux.ScreenPermission}, nil, time.Now())
 	require.Equal(t, Running, inst.Status, "auto-yes answers the prompt instead of waiting")
 	require.False(t, inst.NeedsAttention())
+}
+
+// Hook events recorded by `cs hook` take precedence over the screen, as long as they belong
+// to this session (same working directory).
+func TestApplyObservationPrefersHooks(t *testing.T) {
+	dir := t.TempDir()
+	inst, err := NewInstance(InstanceOptions{Title: "hooked", Path: dir, Program: "claude"})
+	require.NoError(t, err)
+	now := time.Now()
+	idle := tmux.Observation{Screen: tmux.ScreenIdle}
+
+	inst.ApplyObservation(idle, &hooks.Status{Event: "PreToolUse", CWD: dir, At: now}, now)
+	require.Equal(t, Running, inst.Status, "the hook says working even though the screen looks idle")
+	require.Equal(t, now, inst.LastActivity, "hook events count as activity")
+
+	inst.ApplyObservation(idle, &hooks.Status{Event: "PermissionRequest", CWD: dir, At: now}, now)
+	require.Equal(t, Waiting, inst.Status)
+	require.Equal(t, WaitPermission, inst.WaitReason)
+
+	stop := &hooks.Status{Event: "Stop", CWD: dir, At: now}
+	inst.ApplyObservation(idle, stop, now)
+	require.Equal(t, WaitDone, inst.WaitReason)
+
+	inst.MarkSeen()
+	inst.ApplyObservation(idle, stop, now)
+	require.Equal(t, Ready, inst.Status, "a Stop older than the last look is already read")
+
+	later := &hooks.Status{Event: "Stop", CWD: dir, At: time.Now().Add(time.Minute)}
+	inst.ApplyObservation(idle, later, now)
+	require.Equal(t, WaitDone, inst.WaitReason, "a newer Stop is unread again")
+
+	inst.ApplyObservation(idle, &hooks.Status{Event: "SessionEnd", CWD: dir, At: now}, now)
+	require.Equal(t, Ready, inst.Status)
+}
+
+func TestApplyObservationIgnoresForeignHooks(t *testing.T) {
+	inst, err := NewInstance(InstanceOptions{Title: "mine", Path: t.TempDir(), Program: "claude"})
+	require.NoError(t, err)
+	now := time.Now()
+
+	foreign := &hooks.Status{Event: "PermissionRequest", CWD: "/somewhere/else", At: now}
+	inst.ApplyObservation(tmux.Observation{Screen: tmux.ScreenWorking}, foreign, now)
+	require.Equal(t, Running, inst.Status, "a hook from another directory is ignored; the screen decides")
+
+	unknown := &hooks.Status{Event: "Notification", Type: "auth_success", CWD: inst.Path, At: now}
+	inst.ApplyObservation(tmux.Observation{Screen: tmux.ScreenPermission}, unknown, now)
+	require.Equal(t, WaitPermission, inst.WaitReason, "an uninformative hook defers to the screen")
+}
+
+func TestHookCWDAndPaneIDBeforeStart(t *testing.T) {
+	dir := t.TempDir()
+	inst, err := NewInstance(InstanceOptions{Title: "cold", Path: dir, Program: "claude"})
+	require.NoError(t, err)
+	require.Equal(t, dir, inst.HookCWD(), "no worktree yet: the session path")
+	require.Equal(t, "", inst.PaneID(), "not started: no pane")
 }

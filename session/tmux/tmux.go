@@ -475,6 +475,22 @@ func (t *TmuxSession) updateWindowSize(cols, rows int) error {
 	})
 }
 
+// PaneID returns the tmux pane id (e.g. "%3") of the session's first pane. Hook events
+// recorded by `cs hook` are keyed by this id.
+func (t *TmuxSession) PaneID() (string, error) {
+	cmd := exec.Command("tmux", "list-panes", "-t", fmt.Sprintf("=%s", t.sanitizedName), "-F", "#{pane_id}")
+	out, err := t.cmdExec.Output(cmd)
+	if err != nil {
+		return "", fmt.Errorf("error listing panes of %s: %w", t.sanitizedName, err)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line, nil
+		}
+	}
+	return "", fmt.Errorf("session %s has no panes", t.sanitizedName)
+}
+
 func (t *TmuxSession) DoesSessionExist() bool {
 	// Using "-t name" does a prefix match, which is wrong. `-t=` does an exact match.
 	existsCmd := exec.Command("tmux", "has-session", fmt.Sprintf("-t=%s", t.sanitizedName))

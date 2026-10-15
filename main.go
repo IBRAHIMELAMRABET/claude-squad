@@ -5,6 +5,7 @@ import (
 	cmd2 "claude-squad/cmd"
 	"claude-squad/config"
 	"claude-squad/daemon"
+	"claude-squad/hooks"
 	"claude-squad/log"
 	"claude-squad/session"
 	"claude-squad/session/git"
@@ -14,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -135,6 +137,35 @@ var (
 		},
 	}
 
+	hookPrintFlag bool
+	hookCmd       = &cobra.Command{
+		Use:   "hook",
+		Short: "Record a Claude Code hook event (run by Claude, not by hand)",
+		Long: "Reads a Claude Code hook payload on stdin and records the session state for the\n" +
+			"tmux pane it runs in, so the session list can show which sessions are waiting.\n" +
+			"Sessions started by " + "claude-squad" + " get this hook automatically. For sessions started\n" +
+			"elsewhere, add the output of `hook --print` to ~/.claude/settings.json.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if hookPrintFlag {
+				execPath, err := os.Executable()
+				if err != nil {
+					return err
+				}
+				data, err := hooks.Settings(hooks.HookCommand(execPath))
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(data))
+				return nil
+			}
+			dir, err := hooks.StatusDir()
+			if err != nil {
+				return err
+			}
+			return hooks.Record(dir, os.Stdin, os.Getenv("TMUX_PANE"), time.Now())
+		},
+	}
+
 	versionCmd = &cobra.Command{
 		Use:   "version",
 		Short: "Print the version number",
@@ -162,6 +193,10 @@ func init() {
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(resetCmd)
+
+	hookCmd.Flags().BoolVar(&hookPrintFlag, "print", false,
+		"Print the hooks settings JSON to merge into ~/.claude/settings.json")
+	rootCmd.AddCommand(hookCmd)
 }
 
 func main() {

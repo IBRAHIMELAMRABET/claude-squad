@@ -1,11 +1,14 @@
 package session
 
 import (
+	"claude-squad/config"
+	"claude-squad/hooks"
 	"claude-squad/log"
 	"claude-squad/session/git"
 	"claude-squad/session/tmux"
 	"errors"
 	"path/filepath"
+	"sync"
 
 	"fmt"
 	"os"
@@ -76,6 +79,12 @@ type Instance struct {
 	WaitReason WaitReason
 	// lastScreen is the screen state seen at the previous observation.
 	lastScreen tmux.ScreenState
+	// seenAt is when the user last opened the session; hook "turn finished" events older
+	// than this are considered read.
+	seenAt time.Time
+	// paneID caches the tmux pane id used to key hook status files.
+	paneID   string
+	paneIDMu sync.Mutex
 
 	// DiffStats stores the current git diff statistics
 	diffStats *git.DiffStats
@@ -162,7 +171,7 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 
 	if instance.Paused() {
 		instance.started = true
-		instance.tmuxSession = tmux.NewTmuxSession(instance.Title, instance.Program)
+		instance.tmuxSession = tmux.NewTmuxSession(instance.Title, instance.launchProgram())
 	} else {
 		if err := instance.Start(false); err != nil {
 			return nil, err
@@ -216,6 +225,51 @@ func (i *Instance) RepoName() (string, error) {
 	return i.gitWorktree.GetRepoName(), nil
 }
 
+// launchProgram is the command actually started in tmux: the configured program plus, for
+// claude, the --settings flag that routes its hook events to `cs hook`.
+func (i *Instance) launchProgram() string {
+	if config.LoadConfig().DisableHooks || !hooks.IsClaude(i.Program) {
+		return i.Program
+	}
+	execPath, err := os.Executable()
+	if err != nil {
+		log.WarningLog.Printf("hooks disabled for %q: cannot locate cs executable: %v", i.Title, err)
+		return i.Program
+	}
+	settings, err := hooks.EnsureSettings(execPath)
+	if err != nil {
+		log.WarningLog.Printf("hooks disabled for %q: %v", i.Title, err)
+		return i.Program
+	}
+	return i.Program + hooks.LaunchArgs(i.Program, settings)
+}
+
+// PaneID returns the tmux pane id of the session, cached after the first lookup. Empty when
+// the session is not running.
+func (i *Instance) PaneID() string {
+	if !i.started || i.Status == Paused || i.tmuxSession == nil {
+		return ""
+	}
+	i.paneIDMu.Lock()
+	defer i.paneIDMu.Unlock()
+	if i.paneID == "" {
+		id, err := i.tmuxSession.PaneID()
+		if err != nil {
+			return ""
+		}
+		i.paneID = id
+	}
+	return i.paneID
+}
+
+// HookCWD is the working directory Claude reports in hook events for this session.
+func (i *Instance) HookCWD() string {
+	if wt := i.GetWorktreePath(); wt != "" {
+		return wt
+	}
+	return i.Path
+}
+
 // RepoLabel returns a short repository name for display. Unlike RepoName it never fails:
 // before the worktree exists it falls back to the last element of the session path.
 func (i *Instance) RepoLabel() string {
@@ -255,7 +309,7 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 		tmuxSession = i.tmuxSession
 	} else {
 		// Create new tmux session
-		tmuxSession = tmux.NewTmuxSession(i.Title, i.Program)
+		tmuxSession = tmux.NewTmuxSession(i.Title, i.launchProgram())
 	}
 	i.tmuxSession = tmuxSession
 
@@ -393,16 +447,20 @@ func (i *Instance) Observe() tmux.Observation {
 	return i.tmuxSession.Observe()
 }
 
-// ApplyObservation derives the status from a fresh look at the screen. A recognised screen
-// wins; otherwise output changes mean Running and silence means Ready. A turn that just
-// finished (working, then idle) becomes Waiting/done until the user looks at the session.
-// Must be called from the main event loop.
-func (i *Instance) ApplyObservation(obs tmux.Observation, now time.Time) {
+// ApplyObservation derives the status from a fresh look at the session. A hook event
+// recorded for the session wins; otherwise a recognised screen decides; otherwise output
+// changes mean Running and silence means Ready. A turn that just finished becomes
+// Waiting/done until the user looks at the session. Must be called from the main event loop.
+func (i *Instance) ApplyObservation(obs tmux.Observation, hook *hooks.Status, now time.Time) {
 	if obs.Updated {
 		i.LastActivity = now
 	}
 	prevScreen := i.lastScreen
 	i.lastScreen = obs.Screen
+
+	if hook != nil && i.applyHook(*hook) {
+		return
+	}
 
 	switch {
 	case obs.Screen == tmux.ScreenWorking:
@@ -437,6 +495,46 @@ func (i *Instance) ApplyObservation(obs tmux.Observation, now time.Time) {
 	}
 }
 
+// applyHook derives the status from a hook event. It returns false when the event belongs
+// to another session (different working directory) or says nothing about the state, so
+// the screen decides instead.
+func (i *Instance) applyHook(h hooks.Status) bool {
+	if h.CWD != "" && filepath.Clean(h.CWD) != filepath.Clean(i.HookCWD()) {
+		return false
+	}
+	switch h.State() {
+	case hooks.StateWorking:
+		i.setWaiting("")
+		i.SetStatus(Running)
+	case hooks.StatePermission:
+		if i.AutoYes {
+			i.TapEnter()
+			i.setWaiting("")
+			i.SetStatus(Running)
+		} else {
+			i.setWaiting(WaitPermission)
+		}
+	case hooks.StateQuestion:
+		i.setWaiting(WaitQuestion)
+	case hooks.StateDone:
+		if h.At.After(i.seenAt) {
+			i.setWaiting(WaitDone)
+		} else {
+			i.setWaiting("")
+			i.SetStatus(Ready)
+		}
+	case hooks.StateEnded:
+		i.setWaiting("")
+		i.SetStatus(Ready)
+	default:
+		return false
+	}
+	if h.At.After(i.LastActivity) {
+		i.LastActivity = h.At
+	}
+	return true
+}
+
 // setWaiting puts the instance in Waiting with the given reason, or just clears the reason
 // when it is empty.
 func (i *Instance) setWaiting(reason WaitReason) {
@@ -448,6 +546,7 @@ func (i *Instance) setWaiting(reason WaitReason) {
 
 // MarkSeen clears a "turn finished" wait once the user has looked at the session.
 func (i *Instance) MarkSeen() {
+	i.seenAt = time.Now()
 	if i.Status == Waiting && i.WaitReason == WaitDone {
 		i.setWaiting("")
 		i.SetStatus(Ready)
