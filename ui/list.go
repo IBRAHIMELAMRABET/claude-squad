@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"claude-squad/config"
 	"claude-squad/log"
 	"claude-squad/session"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
@@ -14,6 +17,8 @@ import (
 
 const readyIcon = "● "
 const pausedIcon = "⏸ "
+const foldedIcon = "▸"
+const unfoldedIcon = "▾"
 
 var readyStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.AdaptiveColor{Light: "#51bd73", Dark: "#51bd73"})
@@ -53,6 +58,17 @@ var autoYesStyle = lipgloss.NewStyle().
 	Background(lipgloss.Color("#dde4f0")).
 	Foreground(lipgloss.Color("#1a1a1a"))
 
+var groupHeaderStyle = lipgloss.NewStyle().
+	Bold(true).
+	Padding(0, 1).
+	Foreground(lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"})
+
+var groupCountStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.AdaptiveColor{Light: "#A49FA5", Dark: "#777777"})
+
+// now is overridable in tests.
+var now = time.Now
+
 type List struct {
 	items         []*session.Instance
 	selectedIdx   int
@@ -60,17 +76,19 @@ type List struct {
 	renderer      *InstanceRenderer
 	autoyes       bool
 
-	// map of repo name to number of instances using it. Used to display the repo name only if there are
-	// multiple repos in play.
-	repos map[string]int
+	// folded holds the projects whose sessions are hidden under their header.
+	folded map[string]bool
+	// projectColors maps a project name to an optional hex color for its header.
+	projectColors map[string]string
 }
 
 func NewList(spinner *spinner.Model, autoYes bool) *List {
 	return &List{
-		items:    []*session.Instance{},
-		renderer: &InstanceRenderer{spinner: spinner},
-		repos:    make(map[string]int),
-		autoyes:  autoYes,
+		items:         []*session.Instance{},
+		renderer:      &InstanceRenderer{spinner: spinner},
+		autoyes:       autoYes,
+		folded:        make(map[string]bool),
+		projectColors: make(map[string]string),
 	}
 }
 
@@ -101,6 +119,32 @@ func (l *List) NumInstances() int {
 	return len(l.items)
 }
 
+// SetProjectColors sets the optional header color per project name.
+func (l *List) SetProjectColors(colors map[string]string) {
+	l.projectColors = colors
+	if l.projectColors == nil {
+		l.projectColors = make(map[string]string)
+	}
+}
+
+// SetFolded marks the given projects as folded.
+func (l *List) SetFolded(projects []string) {
+	l.folded = make(map[string]bool, len(projects))
+	for _, p := range projects {
+		l.folded[p] = true
+	}
+}
+
+// FoldedProjects returns the folded project names, sorted.
+func (l *List) FoldedProjects() []string {
+	out := make([]string, 0, len(l.folded))
+	for p := range l.folded {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // InstanceRenderer handles rendering of session.Instance objects
 type InstanceRenderer struct {
 	spinner *spinner.Model
@@ -114,7 +158,25 @@ func (r *InstanceRenderer) setWidth(width int) {
 // ɹ and ɻ are other options.
 const branchIcon = "Ꮧ"
 
-func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, hasMultipleRepos bool) string {
+// ago formats how long ago t was, compactly ("now", "5m", "2h", "3d"). Empty for the zero time.
+func ago(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := now().Sub(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
+func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool) string {
 	prefix := fmt.Sprintf(" %d. ", idx)
 	if idx >= 10 {
 		prefix = prefix[:len(prefix)-1]
@@ -171,10 +233,16 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, h
 		)
 	}
 
+	age := ago(i.LastActivity)
+	if age != "" {
+		age += " "
+	}
+
 	remainingWidth := r.width
 	remainingWidth -= runewidth.StringWidth(prefix)
 	remainingWidth -= runewidth.StringWidth(branchIcon)
 	remainingWidth -= 2 // for the literal " " and "-" in the branchLine format string
+	remainingWidth -= runewidth.StringWidth(age)
 
 	diffWidth := runewidth.StringWidth(addedDiff) + runewidth.StringWidth(removedDiff)
 	if diffWidth > 0 {
@@ -185,13 +253,8 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, h
 	remainingWidth -= diffWidth
 
 	branch := i.Branch
-	if i.Started() && hasMultipleRepos {
-		repoName, err := i.RepoName()
-		if err != nil {
-			log.ErrorLog.Printf("could not get repo name in instance renderer: %v", err)
-		} else {
-			branch += fmt.Sprintf(" (%s)", repoName)
-		}
+	if repo := i.RepoLabel(); repo != "" && repo != "." {
+		branch += fmt.Sprintf(" (%s)", repo)
 	}
 	// Don't show branch if there's no space for it. Or show ellipsis if it's too long.
 	branchWidth := runewidth.StringWidth(branch)
@@ -213,7 +276,7 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, h
 		spaces = strings.Repeat(" ", remainingWidth)
 	}
 
-	branchLine := fmt.Sprintf("%s %s-%s%s%s", strings.Repeat(" ", len(prefix)), branchIcon, branch, spaces, diff)
+	branchLine := fmt.Sprintf("%s %s-%s%s%s%s", strings.Repeat(" ", len(prefix)), branchIcon, branch, spaces, age, diff)
 
 	// join title and subtitle
 	text := lipgloss.JoinVertical(
@@ -223,6 +286,147 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, h
 	)
 
 	return text
+}
+
+// listRow is one block of the rendered list: a project header or a session.
+type listRow struct {
+	header   bool
+	project  string
+	count    int
+	folded   bool
+	instance *session.Instance
+}
+
+// projectOf returns the display group of an instance.
+func projectOf(i *session.Instance) string {
+	if i.Project == "" {
+		return config.OtherProject
+	}
+	return i.Project
+}
+
+// statusRank orders sessions inside a group: the ones needing attention first.
+func statusRank(s session.Status) int {
+	switch s {
+	case session.Running, session.Loading:
+		return 1
+	case session.Ready:
+		return 2
+	case session.Paused:
+		return 3
+	}
+	return 2
+}
+
+// groups returns the project names in display order (alphabetical, Other last) and the
+// sessions of each group sorted by status, then most recent activity, then list order.
+func (l *List) groups() ([]string, map[string][]*session.Instance) {
+	byProject := make(map[string][]*session.Instance)
+	order := make(map[*session.Instance]int, len(l.items))
+	for idx, inst := range l.items {
+		order[inst] = idx
+		p := projectOf(inst)
+		byProject[p] = append(byProject[p], inst)
+	}
+
+	names := make([]string, 0, len(byProject))
+	for name := range byProject {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(a, b int) bool {
+		if names[a] == config.OtherProject || names[b] == config.OtherProject {
+			return names[b] == config.OtherProject
+		}
+		return names[a] < names[b]
+	})
+
+	for _, insts := range byProject {
+		sort.SliceStable(insts, func(a, b int) bool {
+			ra, rb := statusRank(insts[a].Status), statusRank(insts[b].Status)
+			if ra != rb {
+				return ra < rb
+			}
+			if !insts[a].LastActivity.Equal(insts[b].LastActivity) {
+				return insts[a].LastActivity.After(insts[b].LastActivity)
+			}
+			return order[insts[a]] < order[insts[b]]
+		})
+	}
+	return names, byProject
+}
+
+// showHeaders reports whether group headers are drawn: always, except when every session
+// sits in the catch-all group, where a lone "Other" header would be noise.
+func showHeaders(names []string) bool {
+	return !(len(names) == 1 && names[0] == config.OtherProject)
+}
+
+// rows returns the list in display order: headers followed by their sessions, with folded
+// groups reduced to their header.
+func (l *List) rows() []listRow {
+	names, byProject := l.groups()
+	headers := showHeaders(names)
+	var rows []listRow
+	for _, name := range names {
+		insts := byProject[name]
+		folded := headers && l.folded[name]
+		if headers {
+			rows = append(rows, listRow{header: true, project: name, count: len(insts), folded: folded})
+		}
+		if folded {
+			continue
+		}
+		for _, inst := range insts {
+			rows = append(rows, listRow{project: name, instance: inst})
+		}
+	}
+	return rows
+}
+
+// ordered returns every session in display order, folded or not.
+func (l *List) ordered() []*session.Instance {
+	names, byProject := l.groups()
+	var out []*session.Instance
+	for _, name := range names {
+		out = append(out, byProject[name]...)
+	}
+	return out
+}
+
+// visible returns the sessions currently drawn, in display order.
+func (l *List) visible() []*session.Instance {
+	var out []*session.Instance
+	for _, r := range l.rows() {
+		if !r.header {
+			out = append(out, r.instance)
+		}
+	}
+	return out
+}
+
+func indexOf(insts []*session.Instance, target *session.Instance) int {
+	for i, inst := range insts {
+		if inst == target {
+			return i
+		}
+	}
+	return -1
+}
+
+func (l *List) renderHeader(r listRow) string {
+	icon := unfoldedIcon
+	if r.folded {
+		icon = foldedIcon
+	}
+	style := groupHeaderStyle
+	if c := l.projectColors[r.project]; c != "" {
+		style = style.Foreground(lipgloss.Color(c))
+	}
+	return lipgloss.JoinHorizontal(
+		lipgloss.Left,
+		style.Render(fmt.Sprintf("%s %s", icon, r.project)),
+		groupCountStyle.Render(fmt.Sprintf("%d", r.count)),
+	)
 }
 
 func (l *List) String() string {
@@ -252,55 +456,112 @@ func (l *List) String() string {
 	b.WriteString("\n")
 	b.WriteString("\n")
 
-	// Render the list.
-	for i, item := range l.items {
-		b.WriteString(l.renderer.Render(item, i+1, i == l.selectedIdx, len(l.repos) > 1))
-		if i != len(l.items)-1 {
-			b.WriteString("\n\n")
+	// Render the rows. Sessions are separated by a blank line; a header sits right above
+	// its first session.
+	selected := l.GetSelectedInstance()
+	rows := l.rows()
+	n := 0
+	for i, r := range rows {
+		if r.header {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(l.renderHeader(r))
+			b.WriteString("\n")
+			continue
 		}
+		n++
+		if i > 0 && !rows[i-1].header {
+			b.WriteString("\n")
+		}
+		b.WriteString(l.renderer.Render(r.instance, n, r.instance == selected))
+		b.WriteString("\n")
 	}
 	return lipgloss.Place(l.width, l.height, lipgloss.Left, lipgloss.Top, b.String())
 }
 
-// Down selects the next item in the list.
-func (l *List) Down() {
-	if len(l.items) == 0 {
+// step moves the selection by delta positions through the visible sessions, wrapping.
+func (l *List) step(delta int) {
+	vis := l.visible()
+	if len(vis) == 0 {
 		return
 	}
-	if l.selectedIdx < len(l.items)-1 {
-		l.selectedIdx++
-	} else {
-		l.selectedIdx = 0
+	pos := indexOf(vis, l.GetSelectedInstance())
+	if pos == -1 {
+		l.SelectInstance(vis[0])
+		return
+	}
+	l.SelectInstance(vis[(pos+delta+len(vis))%len(vis)])
+}
+
+// Down selects the next visible session.
+func (l *List) Down() {
+	l.step(1)
+}
+
+// Up selects the previous visible session.
+func (l *List) Up() {
+	l.step(-1)
+}
+
+// ToggleFold folds or unfolds the selected session's project group. When folding hides the
+// selection, the next visible session is selected instead.
+func (l *List) ToggleFold() {
+	cur := l.GetSelectedInstance()
+	if cur == nil {
+		return
+	}
+	project := projectOf(cur)
+	if l.folded[project] {
+		delete(l.folded, project)
+		return
+	}
+	// Pick the replacement before folding, searching forward with wrap-around.
+	ordered := l.ordered()
+	pos := indexOf(ordered, cur)
+	var next *session.Instance
+	for i := 1; i < len(ordered); i++ {
+		cand := ordered[(pos+i)%len(ordered)]
+		if p := projectOf(cand); p != project && !l.folded[p] {
+			next = cand
+			break
+		}
+	}
+	l.folded[project] = true
+	if next != nil {
+		l.SelectInstance(next)
 	}
 }
 
-// Kill selects the next item in the list.
+// Kill removes the selected session and selects its visible neighbour.
 func (l *List) Kill() {
 	if len(l.items) == 0 {
 		return
 	}
 	targetInstance := l.items[l.selectedIdx]
 
+	// Pick the replacement in display order: the next visible session, else the previous one.
+	vis := l.visible()
+	var replacement *session.Instance
+	if pos := indexOf(vis, targetInstance); pos != -1 && len(vis) > 1 {
+		if pos+1 < len(vis) {
+			replacement = vis[pos+1]
+		} else {
+			replacement = vis[pos-1]
+		}
+	}
+
 	// Kill the tmux session
 	if err := targetInstance.Kill(); err != nil {
 		log.ErrorLog.Printf("could not kill instance: %v", err)
 	}
 
-	// If you delete the last one in the list, select the previous one.
-	if l.selectedIdx == len(l.items)-1 {
-		defer l.Up()
-	}
-
-	// Unregister the reponame.
-	repoName, err := targetInstance.RepoName()
-	if err != nil {
-		log.ErrorLog.Printf("could not get repo name: %v", err)
-	} else {
-		l.rmRepo(repoName)
-	}
-
-	// Since there's items after this, the selectedIdx can stay the same.
 	l.items = append(l.items[:l.selectedIdx], l.items[l.selectedIdx+1:]...)
+	if replacement != nil {
+		l.SelectInstance(replacement)
+	} else if l.selectedIdx >= len(l.items) {
+		l.selectedIdx = 0
+	}
 }
 
 func (l *List) Attach() (chan struct{}, error) {
@@ -308,56 +569,23 @@ func (l *List) Attach() (chan struct{}, error) {
 	return targetInstance.Attach()
 }
 
-// Up selects the prev item in the list.
-func (l *List) Up() {
-	if len(l.items) == 0 {
-		return
-	}
-	if l.selectedIdx > 0 {
-		l.selectedIdx--
-	} else {
-		l.selectedIdx = len(l.items) - 1
-	}
-}
-
-func (l *List) addRepo(repo string) {
-	if _, ok := l.repos[repo]; !ok {
-		l.repos[repo] = 0
-	}
-	l.repos[repo]++
-}
-
-func (l *List) rmRepo(repo string) {
-	if _, ok := l.repos[repo]; !ok {
-		log.ErrorLog.Printf("repo %s not found", repo)
-		return
-	}
-	l.repos[repo]--
-	if l.repos[repo] == 0 {
-		delete(l.repos, repo)
-	}
-}
-
 // AddInstance adds a new instance to the list. It returns a finalizer function that should be called when the instance
 // is started. If the instance was restored from storage or is paused, you can call the finalizer immediately.
 // When creating a new one and entering the name, you want to call the finalizer once the name is done.
 func (l *List) AddInstance(instance *session.Instance) (finalize func()) {
 	l.items = append(l.items, instance)
-	// The finalizer registers the repo name once the instance is started.
+	// A new session must be visible, so unfold its group.
+	delete(l.folded, projectOf(instance))
 	return func() {
-		repoName, err := instance.RepoName()
-		if err != nil {
-			log.ErrorLog.Printf("could not get repo name: %v", err)
-			return
+		if instance.LastActivity.IsZero() {
+			instance.LastActivity = now()
 		}
-
-		l.addRepo(repoName)
 	}
 }
 
 // GetSelectedInstance returns the currently selected instance
 func (l *List) GetSelectedInstance() *session.Instance {
-	if len(l.items) == 0 {
+	if len(l.items) == 0 || l.selectedIdx < 0 || l.selectedIdx >= len(l.items) {
 		return nil
 	}
 	return l.items[l.selectedIdx]
@@ -365,7 +593,7 @@ func (l *List) GetSelectedInstance() *session.Instance {
 
 // SetSelectedInstance sets the selected index. Noop if the index is out of bounds.
 func (l *List) SetSelectedInstance(idx int) {
-	if idx >= len(l.items) {
+	if idx < 0 || idx >= len(l.items) {
 		return
 	}
 	l.selectedIdx = idx
@@ -381,7 +609,8 @@ func (l *List) SelectInstance(target *session.Instance) {
 	}
 }
 
-// MoveUp swaps the selected instance with the one above it.
+// MoveUp swaps the selected instance with the one above it in storage order. Storage order
+// is the final tie-breaker of the grouped view.
 func (l *List) MoveUp() bool {
 	if l.selectedIdx <= 0 || len(l.items) < 2 {
 		return false
@@ -391,7 +620,7 @@ func (l *List) MoveUp() bool {
 	return true
 }
 
-// MoveDown swaps the selected instance with the one below it.
+// MoveDown swaps the selected instance with the one below it in storage order.
 func (l *List) MoveDown() bool {
 	if l.selectedIdx >= len(l.items)-1 || len(l.items) < 2 {
 		return false

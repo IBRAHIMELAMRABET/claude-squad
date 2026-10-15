@@ -18,6 +18,8 @@ type InstanceData struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	AutoYes   bool      `json:"auto_yes"`
+	// LastActivity is the last time the session's output changed.
+	LastActivity time.Time `json:"last_activity"`
 
 	Program   string          `json:"program"`
 	Worktree  GitWorktreeData `json:"worktree"`

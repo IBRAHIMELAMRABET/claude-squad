@@ -139,14 +139,37 @@ func newHome(ctx context.Context, program string, autoYes bool) *home {
 
 	// Add loaded instances to the list
 	for _, instance := range instances {
+		instance.Project = appConfig.ProjectFor(instance.ProjectPath())
 		// Call the finalizer immediately.
 		h.list.AddInstance(instance)()
 		if autoYes {
 			instance.AutoYes = true
 		}
 	}
+	h.list.SetProjectColors(projectColors(appConfig))
+	h.list.SetFolded(appState.GetUIPrefs().FoldedProjects)
 
 	return h
+}
+
+// projectColors returns the configured header color per project.
+func projectColors(cfg *config.Config) map[string]string {
+	colors := make(map[string]string, len(cfg.Projects))
+	for _, p := range cfg.Projects {
+		if p.Color != "" {
+			colors[p.Name] = p.Color
+		}
+	}
+	return colors
+}
+
+// saveUIPrefs persists the view preferences (folds etc.).
+func (m *home) saveUIPrefs() {
+	prefs := m.appState.GetUIPrefs()
+	prefs.FoldedProjects = m.list.FoldedProjects()
+	if err := m.appState.SetUIPrefs(prefs); err != nil {
+		log.WarningLog.Printf("failed to save UI preferences: %v", err)
+	}
 }
 
 // updateHandleWindowSizeEvent sets the sizes of the components.
@@ -241,6 +264,7 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if r.updated {
 				r.instance.SetStatus(session.Running)
+				r.instance.LastActivity = time.Now()
 			} else if r.hasPrompt {
 				r.instance.TapEnter()
 			} else {
@@ -628,6 +652,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if err != nil {
 			return m, m.handleError(err)
 		}
+		instance.Project = m.appConfig.ProjectFor(instance.Path)
 
 		m.newInstanceFinalizer = m.list.AddInstance(instance)
 		m.list.SetSelectedInstance(m.list.NumInstances() - 1)
@@ -649,6 +674,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if err != nil {
 			return m, m.handleError(err)
 		}
+		instance.Project = m.appConfig.ProjectFor(instance.Path)
 
 		m.newInstanceFinalizer = m.list.AddInstance(instance)
 		m.list.SetSelectedInstance(m.list.NumInstances() - 1)
@@ -749,22 +775,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			m.instanceChanged()
 		})
 		return m, nil
-	case keys.KeyMoveUp:
-		if m.list.MoveUp() {
-			if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
-				return m, m.handleError(err)
-			}
-			return m, m.instanceChanged()
-		}
-		return m, nil
-	case keys.KeyMoveDown:
-		if m.list.MoveDown() {
-			if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
-				return m, m.handleError(err)
-			}
-			return m, m.instanceChanged()
-		}
-		return m, nil
+	case keys.KeyFold:
+		m.list.ToggleFold()
+		m.saveUIPrefs()
+		return m, m.instanceChanged()
 	case keys.KeyResume:
 		selected := m.list.GetSelectedInstance()
 		if selected == nil || selected.Status == session.Loading {

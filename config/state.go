@@ -29,6 +29,16 @@ type AppState interface {
 	GetHelpScreensSeen() uint32
 	// SetHelpScreensSeen updates the bitmask of seen help screens
 	SetHelpScreensSeen(seen uint32) error
+	// GetUIPrefs returns the persisted UI preferences
+	GetUIPrefs() UIPrefs
+	// SetUIPrefs stores the UI preferences
+	SetUIPrefs(prefs UIPrefs) error
+}
+
+// UIPrefs are the view settings remembered between runs.
+type UIPrefs struct {
+	// FoldedProjects lists the project groups collapsed in the session list.
+	FoldedProjects []string `json:"folded_projects,omitempty"`
 }
 
 // StateManager combines instance storage and app state management
@@ -43,6 +53,8 @@ type State struct {
 	HelpScreensSeen uint32 `json:"help_screens_seen"`
 	// Instances stores the serialized instance data as raw JSON
 	InstancesData json.RawMessage `json:"instances"`
+	// UI holds the view preferences remembered between runs
+	UI UIPrefs `json:"ui"`
 }
 
 // DefaultState returns the default state
@@ -135,5 +147,16 @@ func (s *State) GetHelpScreensSeen() uint32 {
 // SetHelpScreensSeen updates the bitmask of seen help screens
 func (s *State) SetHelpScreensSeen(seen uint32) error {
 	s.HelpScreensSeen = seen
+	return SaveState(s)
+}
+
+// GetUIPrefs returns the persisted UI preferences
+func (s *State) GetUIPrefs() UIPrefs {
+	return s.UI
+}
+
+// SetUIPrefs stores the UI preferences
+func (s *State) SetUIPrefs(prefs UIPrefs) error {
+	s.UI = prefs
 	return SaveState(s)
 }

@@ -29,9 +29,8 @@ const (
 	KeyShiftUp
 	KeyShiftDown
 
-	// Reorder keybindings
-	KeyMoveUp
-	KeyMoveDown
+	// Project group keybindings
+	KeyFold // Fold/unfold the selected session's project group.
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -42,8 +41,7 @@ var GlobalKeyStringsMap = map[string]KeyName{
 	"j":          KeyDown,
 	"shift+up":   KeyShiftUp,
 	"shift+down": KeyShiftDown,
-	"J":          KeyMoveDown,
-	"K":          KeyMoveUp,
+	" ":          KeyFold,
 	"N":          KeyPrompt,
 	"enter":      KeyEnter,
 	"o":          KeyEnter,
@@ -116,13 +114,9 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 		key.WithHelp("r", "resume"),
 	),
 
-	KeyMoveUp: key.NewBinding(
-		key.WithKeys("K"),
-		key.WithHelp("K", "move up"),
-	),
-	KeyMoveDown: key.NewBinding(
-		key.WithKeys("J"),
-		key.WithHelp("J", "move down"),
+	KeyFold: key.NewBinding(
+		key.WithKeys(" "),
+		key.WithHelp("space", "fold"),
 	),
 
 	// -- Special keybindings --
