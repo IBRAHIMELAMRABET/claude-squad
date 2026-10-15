@@ -42,6 +42,8 @@ const (
 	KeyToggleList // Hide/show the session list pane.
 
 	KeyNextWaiting // Jump to the next session waiting for the user.
+
+	KeyToggleMode // While naming a new session: switch between worktree and in-place.
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -156,6 +158,11 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyNextWaiting: key.NewBinding(
 		key.WithKeys("w"),
 		key.WithHelp("w", "next waiting"),
+	),
+
+	KeyToggleMode: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "worktree/in-place"),
 	),
 
 	// -- Special keybindings --

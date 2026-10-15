@@ -578,3 +578,37 @@ func TestReconcileAdopted(t *testing.T) {
 	require.True(t, h.reconcileAdopted(panes[:1]), "the pane went away")
 	require.Zero(t, h.list.NumInstances())
 }
+
+// While naming a new session, tab switches between worktree and in-place mode.
+func TestNamingTabTogglesInPlace(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	h := &home{
+		ctx:          context.Background(),
+		state:        stateDefault,
+		appConfig:    &config.Config{DefaultMode: config.ModeInPlace},
+		appState:     config.DefaultState(),
+		list:         ui.NewList(&spinner, false),
+		menu:         ui.NewMenu(),
+		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
+		errBox:       ui.NewErrBox(),
+	}
+	press := func(msg tea.KeyMsg) {
+		h.keySent = true
+		h.handleKeyPress(msg)
+	}
+
+	press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	require.Equal(t, stateNew, h.state)
+	inst := h.list.GetInstances()[0]
+	require.True(t, inst.InPlace, "default_mode applies to new sessions")
+
+	press(tea.KeyMsg{Type: tea.KeyTab})
+	require.False(t, inst.InPlace)
+	press(tea.KeyMsg{Type: tea.KeyTab})
+	require.True(t, inst.InPlace)
+
+	press(tea.KeyMsg{Type: tea.KeyEsc})
+	require.Equal(t, stateDefault, h.state)
+	require.Zero(t, h.list.NumInstances())
+}

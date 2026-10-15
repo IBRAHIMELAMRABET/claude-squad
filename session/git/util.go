@@ -62,3 +62,18 @@ func findGitRepoRoot(path string) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// FindGitRepoRoot returns the root of the repository containing path.
+func FindGitRepoRoot(path string) (string, error) {
+	return findGitRepoRoot(path)
+}
+
+// CurrentBranch returns the branch checked out at path ("HEAD" when detached).
+func CurrentBranch(path string) (string, error) {
+	cmd := exec.Command("git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to read the current branch at %s: %w", path, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}

@@ -70,8 +70,8 @@ func (h helpTypeInstanceStart) toContent() string {
 		titleStyle.Render("Instance Created"),
 		"",
 		descStyle.Render("New session created:"),
-		descStyle.Render(fmt.Sprintf("• Git branch: %s (isolated worktree)",
-			lipgloss.NewStyle().Bold(true).Render(h.instance.Branch))),
+		descStyle.Render(fmt.Sprintf("• Git branch: %s (%s)",
+			lipgloss.NewStyle().Bold(true).Render(h.instance.Branch), h.workspaceKind())),
 		descStyle.Render(fmt.Sprintf("• %s running in background tmux session",
 			lipgloss.NewStyle().Bold(true).Render(h.instance.Program))),
 		"",
@@ -85,6 +85,14 @@ func (h helpTypeInstanceStart) toContent() string {
 		keyStyle.Render("p")+descStyle.Render("     - Push branch to GitHub to create a PR"),
 	)
 	return content
+}
+
+// workspaceKind says where the new session runs.
+func (h helpTypeInstanceStart) workspaceKind() string {
+	if h.instance.InPlace {
+		return "in place, no worktree"
+	}
+	return "isolated worktree"
 }
 
 func (h helpTypeInstanceAttach) toContent() string {

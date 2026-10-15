@@ -589,6 +589,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			if err := instance.SetTitle(instance.Title + " "); err != nil {
 				return m, m.handleError(err)
 			}
+		case tea.KeyTab:
+			instance.InPlace = !instance.InPlace
+			return m, m.instanceChanged()
 		case tea.KeyEsc:
 			m.list.Kill()
 			m.state = stateDefault
@@ -750,6 +753,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			Title:   "",
 			Path:    ".",
 			Program: m.program,
+			InPlace: m.appConfig.InPlaceByDefault(),
 		})
 		if err != nil {
 			return m, m.handleError(err)
@@ -772,6 +776,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			Title:   "",
 			Path:    ".",
 			Program: m.program,
+			InPlace: m.appConfig.InPlaceByDefault(),
 		})
 		if err != nil {
 			return m, m.handleError(err)
@@ -811,19 +816,15 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 
 		// Create the kill action as a tea.Cmd
 		killAction := func() tea.Msg {
-			// Get worktree and check if branch is checked out
-			worktree, err := selected.GetGitWorktree()
-			if err != nil {
-				return err
-			}
-
-			checkedOut, err := worktree.IsBranchCheckedOut()
-			if err != nil {
-				return err
-			}
-
-			if checkedOut {
-				return fmt.Errorf("instance %s is currently checked out", selected.Title)
+			// A worktree session must not be killed while its branch is checked out elsewhere.
+			if worktree, err := selected.GetGitWorktree(); err == nil {
+				checkedOut, err := worktree.IsBranchCheckedOut()
+				if err != nil {
+					return err
+				}
+				if checkedOut {
+					return fmt.Errorf("instance %s is currently checked out", selected.Title)
+				}
 			}
 
 			// Clean up terminal session and hook status for this instance
@@ -851,6 +852,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if selected.Adopted {
 			return m, m.handleError(errNotManaged)
 		}
+		if selected.InPlace {
+			return m, m.handleError(errInPlace)
+		}
 
 		// Create the push action as a tea.Cmd
 		pushAction := func() tea.Msg {
@@ -876,6 +880,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		}
 		if selected.Adopted {
 			return m, m.handleError(errNotManaged)
+		}
+		if selected.InPlace {
+			return m, m.handleError(errInPlace)
 		}
 
 		// Show help screen before pausing
@@ -963,6 +970,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 
 // errNotManaged is shown when a managed-only action targets an adopted session.
 var errNotManaged = fmt.Errorf("this session was not created by claude-squad: open it with enter")
+
+// errInPlace is shown when a worktree-only action targets an in-place session.
+var errInPlace = fmt.Errorf("this session runs in place: commit and push from the repository itself")
 
 // bell rings the terminal bell. Overridable in tests.
 var bell = func() { _, _ = os.Stdout.WriteString("") }

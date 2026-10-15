@@ -102,7 +102,15 @@ func (p *PreviewPane) UpdateContent(instance *session.Instance) error {
 		// Always update the preview state with content, even if empty
 		// This ensures that newly created instances will display their content immediately
 		if len(content) == 0 && !instance.Started() {
-			p.setFallbackState("Please enter a name for the instance.")
+			mode := "worktree: isolated branch and worktree"
+			if instance.InPlace {
+				mode = "in-place: runs in the repository on its current branch"
+			}
+			p.setFallbackState(lipgloss.JoinVertical(lipgloss.Center,
+				"Please enter a name for the instance.",
+				"",
+				fmt.Sprintf("Mode: %s (tab to switch)", mode),
+			))
 		} else {
 			// Update the preview state with the current content
 			p.previewState = previewState{

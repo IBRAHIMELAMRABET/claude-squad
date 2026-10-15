@@ -55,7 +55,7 @@ type Menu struct {
 }
 
 var defaultMenuOptions = []keys.KeyName{keys.KeyNew, keys.KeyPrompt, keys.KeyHelp, keys.KeyQuit}
-var newInstanceMenuOptions = []keys.KeyName{keys.KeySubmitName}
+var newInstanceMenuOptions = []keys.KeyName{keys.KeySubmitName, keys.KeyToggleMode}
 var promptMenuOptions = []keys.KeyName{keys.KeySubmitName}
 var filterMenuOptions = []keys.KeyName{keys.KeyFilterKeep, keys.KeyFilterClear}
 
@@ -141,11 +141,14 @@ func (m *Menu) addInstanceOptions() {
 	// Instance management group
 	options := []keys.KeyName{keys.KeyNew, keys.KeyKill}
 
-	// Action group
-	actionGroup := []keys.KeyName{keys.KeyEnter, keys.KeySubmit}
+	// Action group. In-place sessions have no worktree to push or check out.
+	actionGroup := []keys.KeyName{keys.KeyEnter}
+	if !m.instance.InPlace {
+		actionGroup = append(actionGroup, keys.KeySubmit)
+	}
 	if m.instance.Status == session.Paused {
 		actionGroup = append(actionGroup, keys.KeyResume)
-	} else {
+	} else if !m.instance.InPlace {
 		actionGroup = append(actionGroup, keys.KeyCheckout)
 	}
 

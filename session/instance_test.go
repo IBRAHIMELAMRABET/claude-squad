@@ -189,3 +189,55 @@ func TestHookCWDAndPaneIDBeforeStart(t *testing.T) {
 	require.Equal(t, dir, inst.HookCWD(), "no worktree yet: the session path")
 	require.Equal(t, "", inst.PaneID(), "not started: no pane")
 }
+
+func initRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		require.NoError(t, cmd.Run(), strings.Join(args, " "))
+	}
+	run("init", "-q", "-b", "trunk")
+	run("commit", "-q", "--allow-empty", "-m", "init")
+	resolved, err := filepath.EvalSymlinks(repo)
+	require.NoError(t, err)
+	return resolved
+}
+
+// An in-place session starts the agent in the repository itself, on the current branch,
+// and never creates a worktree.
+func TestStartInPlace(t *testing.T) {
+	repo := initRepo(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "sub"), 0755))
+	inst, err := NewInstance(InstanceOptions{Title: "here", Path: filepath.Join(repo, "sub"), Program: "claude", InPlace: true})
+	require.NoError(t, err)
+	// The session exists only once the PTY factory has launched tmux new-session.
+	pty := &nullPtyFactory{t: t}
+	inst.SetTmuxSession(tmux.NewTmuxSessionWithDeps("here", "claude", pty,
+		cmd_test.MockCmdExec{RunFunc: func(cmd *exec.Cmd) error {
+			if strings.Contains(cmd.String(), "has-session") && pty.calls == 0 {
+				return fmt.Errorf("can't find session")
+			}
+			return nil
+		}}))
+
+	require.NoError(t, inst.Start(true))
+	require.Equal(t, Running, inst.Status)
+	require.Equal(t, repo, inst.Path, "the session runs at the repository root")
+	require.Equal(t, "trunk", inst.Branch)
+	require.Equal(t, "", inst.GetWorktreePath())
+	require.Equal(t, repo, inst.WorkDir())
+	require.Equal(t, repo, inst.HookCWD())
+	require.True(t, inst.ToInstanceData().InPlace)
+	require.Error(t, inst.Pause(), "checkout does not apply in place")
+}
+
+func TestFromInstanceDataKeepsInPlaceWithoutWorktree(t *testing.T) {
+	inst, err := FromInstanceData(InstanceData{Title: "paused", Path: "/repo", Status: Paused, InPlace: true, Program: "claude"})
+	require.NoError(t, err)
+	require.True(t, inst.InPlace)
+	require.True(t, inst.Started())
+	require.Equal(t, "", inst.GetWorktreePath())
+	require.Nil(t, inst.ComputeDiff())
+}

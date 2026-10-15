@@ -20,6 +20,8 @@ type InstanceData struct {
 	AutoYes   bool      `json:"auto_yes"`
 	// LastActivity is the last time the session's output changed.
 	LastActivity time.Time `json:"last_activity"`
+	// InPlace marks a session running directly in its repository, without a worktree.
+	InPlace bool `json:"in_place,omitempty"`
 
 	Program   string          `json:"program"`
 	Worktree  GitWorktreeData `json:"worktree"`

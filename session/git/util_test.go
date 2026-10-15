@@ -1,7 +1,13 @@
 package git
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSanitizeBranchName(t *testing.T) {
@@ -70,4 +76,28 @@ func TestSanitizeBranchName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFindGitRepoRootAndCurrentBranch(t *testing.T) {
+	repo := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		require.NoError(t, cmd.Run(), strings.Join(args, " "))
+	}
+	run("init", "-q", "-b", "trunk")
+	run("commit", "-q", "--allow-empty", "-m", "init")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "sub", "dir"), 0755))
+
+	root, err := FindGitRepoRoot(filepath.Join(repo, "sub", "dir"))
+	require.NoError(t, err)
+	resolved, _ := filepath.EvalSymlinks(repo)
+	require.Equal(t, resolved, root)
+
+	branch, err := CurrentBranch(repo)
+	require.NoError(t, err)
+	require.Equal(t, "trunk", branch)
+
+	_, err = FindGitRepoRoot(t.TempDir())
+	require.Error(t, err, "not a repository")
 }

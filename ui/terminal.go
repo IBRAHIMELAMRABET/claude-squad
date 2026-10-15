@@ -86,8 +86,8 @@ func (t *TerminalPane) UpdateContent(instance *session.Instance) error {
 		t.setFallbackState("Instance is not started yet.")
 		return nil
 	}
-	if instance.GetWorktreePath() == "" {
-		t.setFallbackState("The terminal is only available for sessions with a worktree.")
+	if instance.WorkDir() == "" {
+		t.setFallbackState("The terminal is not available for this session.")
 		return nil
 	}
 
@@ -131,7 +131,7 @@ func (t *TerminalPane) ensureSessionLocked(instance *session.Instance) error {
 		return nil
 	}
 
-	worktreePath := instance.GetWorktreePath()
+	worktreePath := instance.WorkDir()
 	if worktreePath == "" {
 		return nil
 	}

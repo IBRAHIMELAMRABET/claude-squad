@@ -77,6 +77,9 @@ type Instance struct {
 	LastActivity time.Time
 	// WaitReason explains a Waiting status. Not persisted.
 	WaitReason WaitReason
+	// InPlace is true for a session running directly in its repository on the current
+	// branch, without a worktree. Diff, checkout and push do not apply.
+	InPlace bool
 	// Adopted is true for a session discovered in tmux that claude-squad did not create:
 	// it can be watched and attached to, but has no worktree and is never killed, paused,
 	// pushed or persisted.
@@ -119,6 +122,7 @@ func (i *Instance) ToInstanceData() InstanceData {
 		Program:      i.Program,
 		AutoYes:      i.AutoYes,
 		LastActivity: i.LastActivity,
+		InPlace:      i.InPlace,
 	}
 
 	// Only include worktree data if gitWorktree is initialized
@@ -158,6 +162,7 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 		UpdatedAt:    data.UpdatedAt,
 		Program:      data.Program,
 		LastActivity: data.LastActivity,
+		InPlace:      data.InPlace,
 		gitWorktree: git.NewGitWorktreeFromStorage(
 			data.Worktree.RepoPath,
 			data.Worktree.WorktreePath,
@@ -171,6 +176,10 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 			Removed: data.DiffStats.Removed,
 			Content: data.DiffStats.Content,
 		},
+	}
+
+	if instance.InPlace {
+		instance.gitWorktree = nil
 	}
 
 	if instance.Paused() {
@@ -197,6 +206,8 @@ type InstanceOptions struct {
 	AutoYes bool
 	// Branch is an existing branch name to start the session on (empty = new branch from HEAD)
 	Branch string
+	// InPlace runs the session directly in the repository, without a worktree.
+	InPlace bool
 }
 
 func NewInstance(opts InstanceOptions) (*Instance, error) {
@@ -219,6 +230,7 @@ func NewInstance(opts InstanceOptions) (*Instance, error) {
 		UpdatedAt:      t,
 		AutoYes:        false,
 		selectedBranch: opts.Branch,
+		InPlace:        opts.InPlace,
 	}, nil
 }
 
@@ -317,7 +329,18 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 	}
 	i.tmuxSession = tmuxSession
 
-	if firstTimeSetup {
+	if firstTimeSetup && i.InPlace {
+		root, err := git.FindGitRepoRoot(i.Path)
+		if err != nil {
+			return err
+		}
+		i.Path = root
+		branch, err := git.CurrentBranch(root)
+		if err != nil {
+			return err
+		}
+		i.Branch = branch
+	} else if firstTimeSetup {
 		if i.selectedBranch != "" {
 			gitWorktree, err := git.NewGitWorktreeFromBranch(i.Path, i.selectedBranch, i.Title)
 			if err != nil {
@@ -361,6 +384,12 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 				return nil
 			}
 			setupErr = fmt.Errorf("failed to restore existing session: %w", err)
+			return setupErr
+		}
+	} else if i.InPlace {
+		// Start the agent straight in the repository.
+		if err := i.tmuxSession.Start(i.Path); err != nil {
+			setupErr = fmt.Errorf("failed to start new session: %w", err)
 			return setupErr
 		}
 	} else {
@@ -669,6 +698,9 @@ func (i *Instance) Pause() error {
 	if !i.started || i.Adopted {
 		return fmt.Errorf("cannot pause a session claude-squad did not create")
 	}
+	if i.InPlace {
+		return fmt.Errorf("checkout does not apply to an in-place session: it already runs in the repository")
+	}
 	if i.Status == Paused {
 		return fmt.Errorf("instance is already paused")
 	}
@@ -759,6 +791,9 @@ func (i *Instance) Resume() error {
 	if i.Status != Paused {
 		return fmt.Errorf("can only resume paused instances")
 	}
+	if i.InPlace {
+		return i.resumeInPlace()
+	}
 
 	// Check if branch is checked out
 	if checked, err := i.gitWorktree.IsBranchCheckedOut(); err != nil {
@@ -814,6 +849,31 @@ func (i *Instance) Resume() error {
 
 	i.SetStatus(Running)
 	return nil
+}
+
+// resumeInPlace restarts the agent in the repository after its tmux session died.
+func (i *Instance) resumeInPlace() error {
+	if i.tmuxSession.DoesSessionExist() {
+		if err := i.tmuxSession.Restore(); err != nil {
+			return fmt.Errorf("failed to restore session: %w", err)
+		}
+	} else if err := i.tmuxSession.Start(i.Path); err != nil {
+		return fmt.Errorf("failed to start new session: %w", err)
+	}
+	i.SetStatus(Running)
+	return nil
+}
+
+// WorkDir is the directory the agent runs in: the worktree, or the repository for in-place
+// and adopted sessions. Empty before the session starts.
+func (i *Instance) WorkDir() string {
+	if wt := i.GetWorktreePath(); wt != "" {
+		return wt
+	}
+	if i.started {
+		return i.Path
+	}
+	return ""
 }
 
 // UpdateDiffStats updates the git diff statistics for this instance

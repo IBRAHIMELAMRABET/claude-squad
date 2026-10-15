@@ -74,6 +74,21 @@ type Config struct {
 	// AdoptPrograms lists the foreground program names that mark a foreign tmux pane as an
 	// agent session worth listing. Default: ["claude"].
 	AdoptPrograms []string `json:"adopt_programs,omitempty"`
+	// DefaultMode is how new sessions run: ModeWorktree (isolated worktree and branch, the
+	// default) or ModeInPlace (directly in the repository on its current branch).
+	DefaultMode string `json:"default_mode,omitempty"`
+}
+
+const (
+	// ModeWorktree runs each session in its own git worktree and branch.
+	ModeWorktree = "worktree"
+	// ModeInPlace runs the session directly in the repository on its current branch.
+	ModeInPlace = "inplace"
+)
+
+// InPlaceByDefault reports whether new sessions run in place rather than in a worktree.
+func (c *Config) InPlaceByDefault() bool {
+	return c.DefaultMode == ModeInPlace
 }
 
 // GetAdoptPrograms returns the program names that qualify a foreign tmux pane for
