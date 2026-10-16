@@ -360,3 +360,42 @@ func TestListScrollsToSelection(t *testing.T) {
 	}
 	require.LessOrEqual(t, strings.Count(out, "\n"), 24, "never taller than the pane")
 }
+
+// Clicks map back to rows through the layout of the last render.
+func TestHitTestAndFoldByName(t *testing.T) {
+	l := newTestList("a1", "a2", "b1")
+	l.items[0].Project, l.items[1].Project, l.items[2].Project = "A", "A", "B"
+	l.SetSize(60, 40)
+	out := l.String()
+
+	lines := strings.Split(out, "\n")
+	headerLine, rowLine := -1, -1
+	for i, line := range lines {
+		if strings.Contains(line, "▾ B") {
+			headerLine = i
+		}
+		if strings.Contains(line, "a2") {
+			rowLine = i
+		}
+	}
+	require.NotEqual(t, -1, headerLine)
+	require.NotEqual(t, -1, rowLine)
+
+	row, ok := l.HitTest(headerLine)
+	require.True(t, ok)
+	require.True(t, row.Header)
+	require.Equal(t, "B", row.Project)
+
+	row, ok = l.HitTest(rowLine)
+	require.True(t, ok)
+	require.Equal(t, "a2", row.Instance.Title)
+
+	_, ok = l.HitTest(0)
+	require.False(t, ok, "the title area is not a row")
+
+	l.ToggleFoldProject("B")
+	require.Equal(t, []string{"B"}, l.FoldedProjects())
+	require.Equal(t, "a1", l.GetSelectedInstance().Title, "folding another group leaves the selection alone")
+	l.ToggleFoldProject("B")
+	require.Empty(t, l.FoldedProjects())
+}

@@ -98,6 +98,8 @@ type List struct {
 	// offset is the first block (header or session) drawn, so the selection stays visible
 	// when the list is taller than the pane.
 	offset int
+	// layout records which line of the last render belongs to which row, for mouse clicks.
+	layout []rowSpan
 
 	// activeOnly hides paused sessions.
 	activeOnly bool
@@ -614,16 +616,45 @@ func (l *List) String() string {
 	titleLines := strings.Count(b.String(), "\n")
 	start, end := l.window(heights, selIdx, l.height-titleLines)
 	hiddenAbove, hiddenBelow := countSessions(rows[:start]), countSessions(rows[end:])
+	line := titleLines
 	if hiddenAbove > 0 {
 		b.WriteString(moreStyle.Render(fmt.Sprintf("  ↑ %d more", hiddenAbove)) + "\n")
+		line++
 	}
+	l.layout = l.layout[:0]
 	for i := start; i < end; i++ {
 		b.WriteString(blocks[i])
+		l.layout = append(l.layout, rowSpan{start: line, end: line + heights[i], row: rows[i]})
+		line += heights[i]
 	}
 	if hiddenBelow > 0 {
 		b.WriteString(moreStyle.Render(fmt.Sprintf("  ↓ %d more", hiddenBelow)) + "\n")
 	}
 	return lipgloss.Place(l.width, l.height, lipgloss.Left, lipgloss.Top, b.String())
+}
+
+// rowSpan is the line range [start, end) a drawn row occupied in the last render.
+type rowSpan struct {
+	start, end int
+	row        listRow
+}
+
+// Hit is what a mouse click landed on: a group header, or a session.
+type Hit struct {
+	Header   bool
+	Project  string
+	Instance *session.Instance
+}
+
+// HitTest returns the row drawn at the given line of the list (0 = the list's first line),
+// as of the last render.
+func (l *List) HitTest(line int) (Hit, bool) {
+	for _, s := range l.layout {
+		if line >= s.start && line < s.end {
+			return Hit{Header: s.row.header, Project: s.row.project, Instance: s.row.instance}, true
+		}
+	}
+	return Hit{}, false
 }
 
 // window picks the blocks [start, end) to draw in avail lines: it scrolls just enough for
@@ -716,24 +747,30 @@ func (l *List) Up() {
 // ToggleFold folds or unfolds the selected session's project group. When folding hides the
 // selection, the next visible session is selected instead.
 func (l *List) ToggleFold() {
-	cur := l.GetSelectedInstance()
-	if cur == nil {
-		return
+	if cur := l.GetSelectedInstance(); cur != nil {
+		l.ToggleFoldProject(projectOf(cur))
 	}
-	project := projectOf(cur)
+}
+
+// ToggleFoldProject folds or unfolds a project group by name, moving a hidden selection to
+// the next visible session.
+func (l *List) ToggleFoldProject(project string) {
 	if l.folded[project] {
 		delete(l.folded, project)
 		return
 	}
-	// Pick the replacement before folding, searching forward with wrap-around.
-	ordered := l.ordered()
-	pos := indexOf(ordered, cur)
+	cur := l.GetSelectedInstance()
 	var next *session.Instance
-	for i := 1; i < len(ordered); i++ {
-		cand := ordered[(pos+i)%len(ordered)]
-		if p := projectOf(cand); p != project && !l.folded[p] {
-			next = cand
-			break
+	if cur != nil && projectOf(cur) == project {
+		// Pick the replacement before folding, searching forward with wrap-around.
+		ordered := l.ordered()
+		pos := indexOf(ordered, cur)
+		for i := 1; i < len(ordered); i++ {
+			cand := ordered[(pos+i)%len(ordered)]
+			if p := projectOf(cand); p != project && !l.folded[p] {
+				next = cand
+				break
+			}
 		}
 	}
 	l.folded[project] = true

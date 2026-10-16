@@ -820,3 +820,37 @@ func TestSidebarShowsCardForArchivedSession(t *testing.T) {
 	require.Contains(t, ran[0], "card.sh")
 	require.Nil(t, h.scheduleFollow(), "already showing that card")
 }
+
+// The wheel moves the selection and clicks fold headers or select rows.
+func TestMouseInSidebar(t *testing.T) {
+	var ran []string
+	h := sidebarHome(t, &ran)
+	base := time.Now()
+	for i, spec := range [][2]string{{"a1", "A"}, {"a2", "A"}, {"b1", "B"}} {
+		inst := session.NewAdoptedInstance(tmux.Pane{Session: spec[0], ID: "%" + spec[0], Command: "claude", Path: t.TempDir()})
+		inst.Project = spec[1]
+		inst.LastActivity = base.Add(-time.Duration(i) * time.Minute) // keep insertion order in the list
+		h.list.AddInstance(inst)()
+	}
+	h.updateHandleWindowSizeEvent(tea.WindowSizeMsg{Width: 36, Height: 40})
+	view := h.View()
+
+	h.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown, X: 5, Y: 10})
+	require.Equal(t, "a2", h.list.GetSelectedInstance().Title, "wheel down moves the selection")
+
+	headerY, rowY := -1, -1
+	for i, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "▾ B") {
+			headerY = i
+		}
+		if strings.Contains(line, "a1") {
+			rowY = i
+		}
+	}
+	require.NotEqual(t, -1, headerY)
+	h.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 5, Y: headerY})
+	require.Equal(t, []string{"B"}, h.list.FoldedProjects(), "clicking a header folds it")
+
+	h.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 5, Y: rowY})
+	require.Equal(t, "a1", h.list.GetSelectedInstance().Title, "clicking a row selects it")
+}

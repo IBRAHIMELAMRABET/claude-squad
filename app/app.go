@@ -119,8 +119,12 @@ type home struct {
 	shown string
 	// followVersion invalidates pending follow timers when the selection moves again.
 	followVersion uint64
-	// width is the last known terminal width.
-	width int
+	// width is the last known terminal width; listWidth the columns the list occupies.
+	width     int
+	listWidth int
+	// lastClick remembers the previous click, so a second click on the same row opens it.
+	lastClick     *session.Instance
+	lastClickTime time.Time
 
 	// instanceStarting is true while a background instance start is in progress.
 	// Prevents double-submission and guards against interacting with a not-yet-started instance.
@@ -244,6 +248,7 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 	if m.sidebar != nil {
 		listWidth = msg.Width
 	}
+	m.listWidth = listWidth
 	tabsWidth := msg.Width - listWidth
 
 	// Menu takes 10% of height, list and window take 90%; the compact sidebar menu needs a
@@ -451,23 +456,7 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir),
 		)
 	case tea.MouseMsg:
-		// Handle mouse wheel events for scrolling the diff/preview pane
-		if msg.Action == tea.MouseActionPress {
-			if msg.Button == tea.MouseButtonWheelDown || msg.Button == tea.MouseButtonWheelUp {
-				selected := m.list.GetSelectedInstance()
-				if selected == nil || selected.Status == session.Paused {
-					return m, nil
-				}
-
-				switch msg.Button {
-				case tea.MouseButtonWheelUp:
-					m.tabbedWindow.ScrollUp()
-				case tea.MouseButtonWheelDown:
-					m.tabbedWindow.ScrollDown()
-				}
-			}
-		}
-		return m, nil
+		return m.handleMouse(msg)
 	case branchSearchDebounceMsg:
 		// Debounce timer fired — check if this is still the current filter version
 		if m.textInputOverlay == nil {
@@ -1121,6 +1110,66 @@ func (m *home) notify(newlyWaiting, total int) tea.Cmd {
 		title = fmt.Sprintf("claude-squad · %d waiting", total)
 	}
 	return tea.SetWindowTitle(title)
+}
+
+// handleMouse handles clicks and the wheel. Over the list, the wheel moves the selection, a
+// click on a group header folds it, a click on a row selects it and a second click on the
+// selected row opens it. Over the preview (classic layout) the wheel scrolls the pane.
+func (m *home) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Action != tea.MouseActionPress || m.state != stateDefault {
+		return m, nil
+	}
+	inList := m.sidebar != nil || (!m.listHidden && msg.X < m.listWidth)
+	switch msg.Button {
+	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
+		if !inList {
+			selected := m.list.GetSelectedInstance()
+			if selected == nil || selected.Status == session.Paused {
+				return m, nil
+			}
+			if msg.Button == tea.MouseButtonWheelUp {
+				m.tabbedWindow.ScrollUp()
+			} else {
+				m.tabbedWindow.ScrollDown()
+			}
+			return m, nil
+		}
+		if msg.Button == tea.MouseButtonWheelUp {
+			m.list.Up()
+		} else {
+			m.list.Down()
+		}
+		return m, m.instanceChanged()
+	case tea.MouseButtonLeft:
+		if !inList {
+			return m, nil
+		}
+		row, ok := m.list.HitTest(msg.Y - 1) // the list is drawn under one line of padding
+		if !ok {
+			return m, nil
+		}
+		if row.Header {
+			m.list.ToggleFoldProject(row.Project)
+			m.saveUIPrefs()
+			return m, m.instanceChanged()
+		}
+		again := m.lastClick == row.Instance && time.Since(m.lastClickTime) < 600*time.Millisecond
+		m.lastClick, m.lastClickTime = row.Instance, time.Now()
+		if row.Instance != m.list.GetSelectedInstance() || !again {
+			m.list.SelectInstance(row.Instance)
+			return m, m.instanceChanged()
+		}
+		// Second click on the selected row: open it.
+		if row.Instance.Archived {
+			return m, m.resumeArchived(row.Instance)
+		}
+		if m.sidebar != nil {
+			row.Instance.MarkSeen()
+			return m, m.focusSession()
+		}
+		return m, nil
+	}
+	return m, nil
 }
 
 // handleFilterState edits the text filter: typed runes extend it, enter keeps it, esc
