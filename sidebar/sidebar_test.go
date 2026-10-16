@@ -73,7 +73,9 @@ func TestShowSessionRespawnsTheRightPane(t *testing.T) {
 	require.NoError(t, c.ToggleZoom())
 	require.Equal(t, "tmux resize-pane -Z -t %1", ran[2])
 	require.NoError(t, c.Quit())
-	require.Equal(t, "tmux kill-session -t ="+UISession, ran[3])
+	require.Equal(t, "tmux set-hook -u -t ="+UISession+" pane-died", ran[3], "the hook goes first")
+	require.Contains(t, ran[4], "tmux respawn-pane -k -t %1 sh ", "then the nested client is replaced")
+	require.Equal(t, "tmux kill-session -t ="+UISession, ran[5], "and only then the session dies")
 }
 
 func TestRightPaneIsRecreatedWhenMissing(t *testing.T) {

@@ -187,8 +187,14 @@ func (c *Controller) ToggleZoom() error {
 	return c.exec.Run(exec.Command("tmux", "resize-pane", "-Z", "-t", pane))
 }
 
-// Quit closes the whole layout. Agent sessions keep running detached.
+// Quit closes the whole layout. Agent sessions keep running detached. The order matters:
+// the pane-died hook is removed, the nested client in the session pane is replaced by the
+// placeholder so it exits cleanly, and only then is the layout session killed. Killing the
+// session while it still hosts a client of the same server has taken the server, and every
+// agent session with it, down.
 func (c *Controller) Quit() error {
+	_ = c.exec.Run(exec.Command("tmux", "set-hook", "-u", "-t", "="+UISession, "pane-died"))
+	_ = c.ShowPlaceholder()
 	return c.exec.Run(exec.Command("tmux", "kill-session", "-t", "="+UISession))
 }
 
