@@ -288,6 +288,7 @@ func (m *home) Init() tea.Cmd {
 		m.spinner.Tick,
 		tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir),
 		m.scanAdoptCmd(),
+		m.scanHistoryCmd(0),
 	}
 	if m.sidebar == nil {
 		cmds = append(cmds, func() tea.Msg {
@@ -380,6 +381,12 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // the selection moved again
 		}
 		return m, m.showSelected()
+	case historyScanMsg:
+		next := m.scanHistoryCmd(historyScanInterval)
+		if m.reconcileHistory(msg.entries) {
+			return m, tea.Batch(m.instanceChanged(), next)
+		}
+		return m, next
 	case adoptScanMsg:
 		livePanes := make(map[string]bool, len(msg.panes))
 		for _, p := range msg.panes {
@@ -837,7 +844,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 	case keys.KeyHelp:
 		return m.showHelpScreen(helpTypeGeneral{}, nil)
 	case keys.KeyPrompt:
-		if limit := m.appConfig.GetMaxInstances(); m.list.NumInstances() >= limit {
+		if limit := m.appConfig.GetMaxInstances(); m.runningCount() >= limit {
 			return m, m.handleError(
 				fmt.Errorf("you can't create more than %d instances", limit))
 		}
@@ -855,7 +862,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 
 		return m, m.instanceChanged()
 	case keys.KeyNew:
-		if limit := m.appConfig.GetMaxInstances(); m.list.NumInstances() >= limit {
+		if limit := m.appConfig.GetMaxInstances(); m.runningCount() >= limit {
 			return m, m.handleError(
 				fmt.Errorf("you can't create more than %d instances", limit))
 		}
@@ -890,6 +897,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		selected := m.list.GetSelectedInstance()
 		if selected == nil || selected.Status == session.Loading {
 			return m, nil
+		}
+		if selected.Archived {
+			return m, m.handleError(errArchived)
 		}
 		if selected.Adopted {
 			return m, m.handleError(errNotManaged)
@@ -930,6 +940,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if selected == nil || selected.Status == session.Loading {
 			return m, nil
 		}
+		if selected.Archived {
+			return m, m.handleError(errArchived)
+		}
 		if selected.Adopted {
 			return m, m.handleError(errNotManaged)
 		}
@@ -958,6 +971,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		selected := m.list.GetSelectedInstance()
 		if selected == nil || selected.Status == session.Loading {
 			return m, nil
+		}
+		if selected.Archived {
+			return m, m.handleError(errArchived)
 		}
 		if selected.Adopted {
 			return m, m.handleError(errNotManaged)
@@ -1002,6 +1018,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if selected == nil || selected.Status == session.Loading {
 			return m, nil
 		}
+		if selected.Archived {
+			return m, m.resumeArchived(selected)
+		}
 		if selected.Adopted {
 			return m, m.handleError(errNotManaged)
 		}
@@ -1014,6 +1033,9 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			return m, nil
 		}
 		selected := m.list.GetSelectedInstance()
+		if selected != nil && selected.Archived {
+			return m, m.resumeArchived(selected)
+		}
 		if selected == nil || selected.Paused() || selected.Status == session.Loading || !selected.TmuxAlive() {
 			return m, nil
 		}
@@ -1073,6 +1095,9 @@ func (m *home) newInstanceInPickedRepo() (*session.Instance, error) {
 	instance.Project = m.appConfig.ProjectFor(instance.Path)
 	return instance, nil
 }
+
+// errArchived is shown when an action other than resume targets a past session.
+var errArchived = fmt.Errorf("this is a past session: press enter to resume it")
 
 // errInPlace is shown when a worktree-only action targets an in-place session.
 var errInPlace = fmt.Errorf("this session runs in place: commit and push from the repository itself")
@@ -1137,6 +1162,9 @@ func (m *home) handleSidebarKey(name keys.KeyName) (bool, tea.Cmd) {
 		}
 		return true, m.focusSession()
 	case keys.KeyEnter:
+		if selected != nil && selected.Archived {
+			return true, m.resumeArchived(selected)
+		}
 		if selected == nil || selected.Paused() || selected.Status == session.Loading || !selected.Started() {
 			return true, nil
 		}
@@ -1182,10 +1210,19 @@ func (m *home) followTarget() string {
 	return sel.TmuxName()
 }
 
+// followKey identifies what the pane should show: a tmux session name, "card:<id>" for a
+// past session, or "" for the placeholder.
+func (m *home) followKey() string {
+	if sel := m.list.GetSelectedInstance(); sel != nil && sel.Archived {
+		return "card:" + sel.ResumeID
+	}
+	return m.followTarget()
+}
+
 // scheduleFollow shows the selected session in the pane after a short pause, so moving
 // through the list does not respawn the pane on every keystroke.
 func (m *home) scheduleFollow() tea.Cmd {
-	if m.followTarget() == m.shown {
+	if m.followKey() == m.shown {
 		return nil
 	}
 	m.followVersion++
@@ -1198,20 +1235,23 @@ func (m *home) scheduleFollow() tea.Cmd {
 
 // showSelected puts the selected session, or the placeholder, in the pane.
 func (m *home) showSelected() tea.Cmd {
-	target := m.followTarget()
-	if target == m.shown {
+	key := m.followKey()
+	if key == m.shown {
 		return nil
 	}
 	var err error
-	if target == "" {
+	switch sel := m.list.GetSelectedInstance(); {
+	case sel != nil && sel.Archived:
+		err = m.sidebar.ShowText(archivedCard(sel))
+	case key == "":
 		err = m.sidebar.ShowPlaceholder()
-	} else {
-		err = m.sidebar.ShowSession(target)
+	default:
+		err = m.sidebar.ShowSession(key)
 	}
 	if err != nil {
 		return m.handleError(err)
 	}
-	m.shown = target
+	m.shown = key
 	return nil
 }
 

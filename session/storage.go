@@ -22,6 +22,8 @@ type InstanceData struct {
 	LastActivity time.Time `json:"last_activity"`
 	// InPlace marks a session running directly in its repository, without a worktree.
 	InPlace bool `json:"in_place,omitempty"`
+	// ResumeID is the Claude session this instance resumes, if any.
+	ResumeID string `json:"resume_id,omitempty"`
 
 	Program   string          `json:"program"`
 	Worktree  GitWorktreeData `json:"worktree"`
@@ -62,8 +64,9 @@ func (s *Storage) SaveInstances(instances []*Instance) error {
 	// Convert instances to InstanceData
 	data := make([]InstanceData, 0)
 	for _, instance := range instances {
-		// Adopted sessions belong to someone else and are rediscovered on each run.
-		if instance.Started() && !instance.Adopted {
+		// Adopted sessions belong to someone else, archived ones live in Claude's transcripts:
+		// both are rediscovered on each run.
+		if instance.Started() && !instance.Adopted && !instance.Archived {
 			data = append(data, instance.ToInstanceData())
 		}
 	}

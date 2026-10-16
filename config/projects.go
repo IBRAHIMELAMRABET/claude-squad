@@ -63,6 +63,7 @@ func cleanPath(p string) string {
 	if p == "" {
 		return ""
 	}
+	p = NormalizePath(p)
 	if expanded, err := ExpandHome(p); err == nil {
 		p = expanded
 	}

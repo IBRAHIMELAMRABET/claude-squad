@@ -32,6 +32,8 @@ const (
 	// Waiting is if the agent needs the user: a permission prompt, a question, or a turn
 	// that just finished. See WaitReason.
 	Waiting
+	// Stopped is a past session known from its transcript only; it can be resumed.
+	Stopped
 )
 
 // WaitReason explains why an instance is Waiting.
@@ -80,6 +82,16 @@ type Instance struct {
 	// InPlace is true for a session running directly in its repository on the current
 	// branch, without a worktree. Diff, checkout and push do not apply.
 	InPlace bool
+	// ResumeID is the Claude session id this instance resumes (`claude --resume`). Such
+	// instances run in place, in the directory the session was recorded in.
+	ResumeID string
+	// ClaudeSessionID is the Claude session id reported by hook events, once known.
+	ClaudeSessionID string
+	// Archived is true for a past session listed from its transcript: nothing runs, the
+	// row offers to resume it. Never persisted; rescanned instead.
+	Archived bool
+	// Summary is a short description shown for archived sessions (last prompt).
+	Summary string
 	// Adopted is true for a session discovered in tmux that claude-squad did not create:
 	// it can be watched and attached to, but has no worktree and is never killed, paused,
 	// pushed or persisted.
@@ -123,6 +135,7 @@ func (i *Instance) ToInstanceData() InstanceData {
 		AutoYes:      i.AutoYes,
 		LastActivity: i.LastActivity,
 		InPlace:      i.InPlace,
+		ResumeID:     i.ResumeID,
 	}
 
 	// Only include worktree data if gitWorktree is initialized
@@ -163,6 +176,7 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 		Program:      data.Program,
 		LastActivity: data.LastActivity,
 		InPlace:      data.InPlace,
+		ResumeID:     data.ResumeID,
 		gitWorktree: git.NewGitWorktreeFromStorage(
 			data.Worktree.RepoPath,
 			data.Worktree.WorktreePath,
@@ -208,6 +222,8 @@ type InstanceOptions struct {
 	Branch string
 	// InPlace runs the session directly in the repository, without a worktree.
 	InPlace bool
+	// ResumeID resumes a past Claude session (implies InPlace, in that session's directory).
+	ResumeID string
 }
 
 func NewInstance(opts InstanceOptions) (*Instance, error) {
@@ -230,8 +246,25 @@ func NewInstance(opts InstanceOptions) (*Instance, error) {
 		UpdatedAt:      t,
 		AutoYes:        false,
 		selectedBranch: opts.Branch,
-		InPlace:        opts.InPlace,
+		InPlace:        opts.InPlace || opts.ResumeID != "",
+		ResumeID:       opts.ResumeID,
 	}, nil
+}
+
+// NewArchivedInstance lists a past session from its transcript. It is not started: the
+// row shows it as Stopped and offers to resume it.
+func NewArchivedInstance(id, title, cwd, summary string, updated time.Time) *Instance {
+	return &Instance{
+		Title:        title,
+		Path:         cwd,
+		Status:       Stopped,
+		CreatedAt:    updated,
+		UpdatedAt:    updated,
+		LastActivity: updated,
+		Archived:     true,
+		ResumeID:     id,
+		Summary:      summary,
+	}
 }
 
 func (i *Instance) RepoName() (string, error) {
@@ -256,9 +289,17 @@ func (i *Instance) launchProgram() string {
 	settings, err := hooks.EnsureSettings(execPath, cfg.ClaudeSettings)
 	if err != nil {
 		log.WarningLog.Printf("hooks disabled for %q: %v", i.Title, err)
-		return i.Program
+		return i.resumeArgs(i.Program)
 	}
-	return i.Program + hooks.LaunchArgs(i.Program, settings)
+	return i.resumeArgs(i.Program) + hooks.LaunchArgs(i.Program, settings)
+}
+
+// resumeArgs appends the --resume flag for a resumed claude session.
+func (i *Instance) resumeArgs(program string) string {
+	if i.ResumeID == "" || !hooks.IsClaude(program) {
+		return program
+	}
+	return program + " --resume " + i.ResumeID
 }
 
 // PaneID returns the tmux pane id of the session, cached after the first lookup. Empty when
@@ -348,16 +389,21 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 	i.tmuxSession = tmuxSession
 
 	if firstTimeSetup && i.InPlace {
-		root, err := git.FindGitRepoRoot(i.Path)
-		if err != nil {
+		if info, err := os.Stat(i.Path); err != nil || !info.IsDir() {
+			return fmt.Errorf("directory %s does not exist", i.Path)
+		}
+		// A resumed session stays in the directory it was recorded in; a fresh in-place
+		// session moves to the repository root. Outside a repository there is no branch.
+		if root, err := git.FindGitRepoRoot(i.Path); err == nil {
+			if i.ResumeID == "" {
+				i.Path = root
+			}
+			if branch, err := git.CurrentBranch(root); err == nil {
+				i.Branch = branch
+			}
+		} else if i.ResumeID == "" {
 			return err
 		}
-		i.Path = root
-		branch, err := git.CurrentBranch(root)
-		if err != nil {
-			return err
-		}
-		i.Branch = branch
 	} else if firstTimeSetup {
 		if i.selectedBranch != "" {
 			gitWorktree, err := git.NewGitWorktreeFromBranch(i.Path, i.selectedBranch, i.Title)
@@ -509,8 +555,13 @@ func (i *Instance) ApplyObservation(obs tmux.Observation, hook *hooks.Status, no
 	prevScreen := i.lastScreen
 	i.lastScreen = obs.Screen
 
-	if hook != nil && i.applyHook(*hook) {
-		return
+	if hook != nil {
+		if hook.SessionID != "" {
+			i.ClaudeSessionID = hook.SessionID
+		}
+		if i.applyHook(*hook) {
+			return
+		}
 	}
 
 	switch {

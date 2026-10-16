@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
@@ -81,10 +82,64 @@ type Config struct {
 	// cs (`--settings`). Use it for machine-specific Claude settings that must not live in
 	// the shared ~/.claude/settings.json, such as marketplaces under WSL-only paths.
 	ClaudeSettings json.RawMessage `json:"claude_settings,omitempty"`
+	// DisableHistory hides past Claude Code sessions (from ~/.claude/projects) in the list.
+	DisableHistory bool `json:"disable_history,omitempty"`
+	// HistoryLimit is how many past sessions per project directory are listed. Zero means
+	// DefaultHistoryLimit.
+	HistoryLimit int `json:"history_limit,omitempty"`
+	// HistoryDays hides past sessions older than this many days. Zero means
+	// DefaultHistoryDays; a negative value disables the age limit.
+	HistoryDays int `json:"history_days,omitempty"`
+	// HistoryIgnore lists path fragments; past sessions whose directory contains one are
+	// not listed. Omitted means DefaultHistoryIgnore (temporary and scratch folders).
+	HistoryIgnore []string `json:"history_ignore,omitempty"`
 	// SidebarDrawer, in the sidebar layout, zooms the session to the full window whenever
 	// it takes focus, so the list only shows when you move back to it (Alt+Left). Omitted
 	// means on.
 	SidebarDrawer *bool `json:"sidebar_drawer,omitempty"`
+}
+
+const (
+	// DefaultHistoryLimit is the number of past sessions listed per project directory.
+	DefaultHistoryLimit = 8
+	// DefaultHistoryDays is how far back past sessions are listed.
+	DefaultHistoryDays = 30
+)
+
+// DefaultHistoryIgnore hides sessions that ran in temporary folders.
+var DefaultHistoryIgnore = []string{"/AppData/Local/Temp/", "/tmp/"}
+
+// HistoryIgnored reports whether a past session recorded in dir should be hidden.
+func (c *Config) HistoryIgnored(dir string) bool {
+	patterns := c.HistoryIgnore
+	if patterns == nil {
+		patterns = DefaultHistoryIgnore
+	}
+	for _, p := range patterns {
+		if p != "" && strings.Contains(dir, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetHistoryLimit returns the per-project cap on past sessions.
+func (c *Config) GetHistoryLimit() int {
+	if c.HistoryLimit <= 0 {
+		return DefaultHistoryLimit
+	}
+	return c.HistoryLimit
+}
+
+// GetHistoryMaxAge returns how old a past session may be to be listed; zero means no limit.
+func (c *Config) GetHistoryMaxAge() time.Duration {
+	switch {
+	case c.HistoryDays < 0:
+		return 0
+	case c.HistoryDays == 0:
+		return DefaultHistoryDays * 24 * time.Hour
+	}
+	return time.Duration(c.HistoryDays) * 24 * time.Hour
 }
 
 // DrawerSidebar reports whether the sidebar behaves as a drawer (session zoomed on focus).

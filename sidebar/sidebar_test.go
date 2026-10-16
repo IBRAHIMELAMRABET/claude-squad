@@ -99,3 +99,18 @@ func TestRightPaneIsRecreatedWhenMissing(t *testing.T) {
 	require.Contains(t, ran[0], "tmux split-window -h -d -t %0 sh ")
 	require.Equal(t, "tmux resize-pane -t %0 -x 36", ran[1])
 }
+
+func TestShowTextWritesCard(t *testing.T) {
+	var ran []string
+	mock := cmd_test.MockCmdExec{
+		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return []byte("%0\t0\n%1\t37\n"), nil },
+		RunFunc:    func(c *exec.Cmd) error { ran = append(ran, strings.Join(c.Args, " ")); return nil },
+	}
+	c := newTestController(t, mock)
+	require.NoError(t, c.ShowText("hello\nworld"))
+	require.Contains(t, ran[0], "respawn-pane -k -t %1 sh ")
+	data, err := os.ReadFile(filepath.Join(c.dir, "card.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "hello\nworld", string(data))
+	require.Contains(t, TextScript("/x/card.txt"), "cat '/x/card.txt'")
+}

@@ -52,6 +52,8 @@ const (
 	KeyDiffView     // tab: show the diff in the session pane.
 	KeyTerminalView // t: open a shell in the session pane.
 	KeyZoom         // z: zoom the session pane.
+
+	KeyResumeHistory // enter on a past session: resume it with claude --resume.
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -192,6 +194,10 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyZoom: key.NewBinding(
 		key.WithKeys("z"),
 		key.WithHelp("z", "zoom"),
+	),
+	KeyResumeHistory: key.NewBinding(
+		key.WithKeys("enter", "o"),
+		key.WithHelp("↵", "resume"),
 	),
 
 	// -- Special keybindings --

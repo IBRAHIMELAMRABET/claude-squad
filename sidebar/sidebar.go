@@ -155,6 +155,20 @@ func (c *Controller) ShowHelp(text, sessionName string) error {
 	return c.show("help.sh", HelpScript(path, sessionName))
 }
 
+// ShowText shows a static text card in the pane (for a session that is not running).
+func (c *Controller) ShowText(text string) error {
+	path, err := c.writeScript("card.txt", text)
+	if err != nil {
+		return err
+	}
+	return c.show("card.sh", TextScript(path))
+}
+
+// TextScript prints a text file and waits.
+func TextScript(path string) string {
+	return "clear\ncat " + shellQuote(path) + "\nwhile :; do sleep 3600; done\n"
+}
+
 // FocusRight moves the cursor into the session pane.
 func (c *Controller) FocusRight() error {
 	pane, err := c.RightPane()

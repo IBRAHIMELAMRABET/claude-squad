@@ -18,6 +18,10 @@ import (
 const readyIcon = "● "
 const pausedIcon = "⏸ "
 const waitingIcon = "! "
+const stoppedIcon = "○ "
+
+// archivedIcon marks past sessions that can be resumed.
+const archivedIcon = "↺"
 const foldedIcon = "▸"
 const unfoldedIcon = "▾"
 
@@ -172,7 +176,7 @@ func (l *List) Filter() string {
 
 // matches reports whether the instance passes the active and text filters.
 func (l *List) matches(i *session.Instance) bool {
-	if l.activeOnly && i.Paused() {
+	if l.activeOnly && (i.Paused() || i.Archived) {
 		return false
 	}
 	if l.filter == "" {
@@ -275,6 +279,8 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool) s
 		join = pausedStyle.Render(pausedIcon)
 	case session.Waiting:
 		join = waitingStyle.Render(waitingIcon)
+	case session.Stopped:
+		join = pausedStyle.Render(stoppedIcon)
 	default:
 	}
 
@@ -335,6 +341,10 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool) s
 	if i.Adopted {
 		icon = adoptedIcon
 		branch = "tmux"
+	}
+	if i.Archived {
+		icon = archivedIcon
+		branch = "resume"
 	}
 	if repo := i.RepoLabel(); repo != "" && repo != "." {
 		branch += fmt.Sprintf(" (%s)", repo)
@@ -400,6 +410,8 @@ func statusRank(s session.Status) int {
 		return 2
 	case session.Paused:
 		return 3
+	case session.Stopped:
+		return 4
 	}
 	return 2
 }
@@ -722,9 +734,9 @@ func (l *List) Attach() (chan struct{}, error) {
 // When creating a new one and entering the name, you want to call the finalizer once the name is done.
 func (l *List) AddInstance(instance *session.Instance) (finalize func()) {
 	l.items = append(l.items, instance)
-	// A session the user just created must be visible, so unfold its group. Adopted
-	// sessions appear on their own and must not disturb the folds.
-	if !instance.Adopted {
+	// A session the user just created must be visible, so unfold its group. Adopted and
+	// past sessions appear on their own and must not disturb the folds.
+	if !instance.Adopted && !instance.Archived {
 		delete(l.folded, projectOf(instance))
 	}
 	return func() {

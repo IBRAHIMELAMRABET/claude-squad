@@ -99,6 +99,18 @@ mouse, scrollback and cursor, while the list stays visible.
   running in tmux and reappear next time.
 - `cs --classic` runs upstream's single-window layout (list, preview, diff and terminal tabs).
 
+#### Past sessions
+
+The list also shows your past Claude Code sessions, read from the transcripts Claude keeps
+under `~/.claude/projects` (the same store Switchboard reads), grouped by project like the
+running ones and marked `○`. Selecting one shows its title, directory, date and last prompt;
+`↵` resumes it in place with `claude --resume`, in the directory it was recorded in, and the
+row turns into a running session. Sessions recorded on Windows resume from WSL too: Claude
+finds the transcript by id and the reply lands in the same file.
+
+Only the most recent sessions are listed (`history_limit` per project directory,
+`history_days` back), and sessions from temporary folders are hidden (`history_ignore`).
+
 <br />
 
 <b>Using Claude Squad with other AI assistants:</b>
@@ -187,6 +199,10 @@ All of these are optional; without them the fork behaves like upstream plus grou
 | `disable_hooks` | `false` | Do not pass the generated hooks settings file to `claude`; status then comes from the screen only. |
 | `claude_settings` | unset | JSON object merged into that settings file, for machine-specific Claude settings that must not live in a shared `~/.claude/settings.json` (for example plugin marketplaces under WSL-only paths). The `hooks` key is reserved. |
 | `sidebar_drawer` | `true` | In the sidebar layout, zoom the session to the full window when it takes focus; `Alt-←` brings the list back. `false` keeps both panes visible. |
+| `disable_history` | `false` | Do not list past Claude sessions from `~/.claude/projects`. |
+| `history_limit` | `8` | Past sessions listed per project directory. |
+| `history_days` | `30` | Past sessions older than this are hidden; `-1` lists all. |
+| `history_ignore` | `["/AppData/Local/Temp/", "/tmp/"]` | Directory fragments whose sessions are hidden. |
 | `notifications` | `{"bell": true, "title": true}` | Ring the terminal bell when a session starts waiting, and keep the waiting count in the window title. |
 | `disable_adopt` | `false` | Do not list agent sessions running in tmux sessions `cs` did not create. |
 | `adopt_programs` | `["claude"]` | Foreground program names that qualify a foreign tmux pane for adoption. |
@@ -253,6 +269,7 @@ Changes made in October 2026 on top of upstream v1.0.20 (AGPL-3.0 §5 notice):
   waiting counts, `w` to jump, bell and window-title notifications.
 - Filters: `a` (active only) and `/` (type-to-filter). `z` hides the list pane.
 - Adoption of agent sessions running in tmux sessions `cs` did not create (watch and open only).
+- Past Claude Code sessions listed from `~/.claude/projects` and resumed with `claude --resume`.
 - In-place sessions without a worktree; a repository picker when creating a session; `cs` can
   start outside a git repository once projects are configured.
 - Config keys `max_instances`, `worktree_dir`, `worktree_next_to_repo`, `default_mode`,

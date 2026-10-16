@@ -146,6 +146,13 @@ func (m *Menu) addInstanceOptions() {
 		return
 	}
 
+	// Past sessions can only be resumed.
+	if m.instance.Archived {
+		m.options = []keys.KeyName{keys.KeyNew, keys.KeyResumeHistory, keys.KeyNextWaiting,
+			keys.KeyActiveOnly, keys.KeySearch, keys.KeyToggleList, keys.KeyHelp, keys.KeyQuit}
+		return
+	}
+
 	// Adopted sessions can only be watched and opened.
 	if m.instance.Adopted {
 		m.options = []keys.KeyName{keys.KeyNew, keys.KeyEnter, keys.KeyTab, keys.KeyNextWaiting,
@@ -185,6 +192,10 @@ func (m *Menu) addInstanceOptions() {
 // sidebarOptions are the keys shown under the session list in the sidebar layout.
 func (m *Menu) sidebarOptions() []keys.KeyName {
 	options := []keys.KeyName{keys.KeyNew, keys.KeyPrompt}
+	if m.instance.Archived {
+		return append(options, keys.KeyResumeHistory, keys.KeyNextWaiting, keys.KeyActiveOnly, keys.KeySearch,
+			keys.KeyZoom, keys.KeyHelp, keys.KeyQuit)
+	}
 	if !m.instance.Adopted {
 		options = append(options, keys.KeyKill)
 	}

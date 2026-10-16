@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -803,4 +804,19 @@ func newTestStorage(t *testing.T) *session.Storage {
 	st, err := session.NewStorage(config.DefaultState())
 	require.NoError(t, err)
 	return st
+}
+
+// Selecting a past session shows a card in the pane instead of attaching anything.
+func TestSidebarShowsCardForArchivedSession(t *testing.T) {
+	var ran []string
+	h := sidebarHome(t, &ran)
+	archived := session.NewArchivedInstance("abcd", "old work", t.TempDir(), "finish the report", time.Now())
+	h.list.AddInstance(archived)()
+
+	require.Equal(t, "card:abcd", h.followKey())
+	require.Nil(t, h.showSelected())
+	require.Equal(t, "card:abcd", h.shown)
+	require.Len(t, ran, 1)
+	require.Contains(t, ran[0], "card.sh")
+	require.Nil(t, h.scheduleFollow(), "already showing that card")
 }
