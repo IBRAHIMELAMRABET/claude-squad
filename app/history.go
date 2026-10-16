@@ -206,7 +206,7 @@ func displayProject(inst *session.Instance) string {
 	if inst.Project != "" {
 		return inst.Project
 	}
-	if g := config.PathGroup(inst.ProjectPath()); g != "" {
+	if g := config.FolderGroupName(inst.ProjectPath(), 1); g != "" {
 		return g
 	}
 	return config.OtherProject

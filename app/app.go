@@ -266,6 +266,12 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 	m.list.SetSize(listWidth, contentHeight)
 
 	m.width = msg.Width
+	if m.sidebar != nil {
+		// A terminal resize scales both panes; put the sidebar back to its width.
+		if err := m.sidebar.FixWidth(msg.Width); err != nil {
+			log.WarningLog.Printf("could not restore the sidebar width: %v", err)
+		}
+	}
 	overlayWidth := int(float32(msg.Width) * 0.6)
 	if m.sidebar != nil {
 		overlayWidth = msg.Width - 2 // the pane is narrow: use all of it
@@ -985,6 +991,14 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.list.ToggleFold()
 		m.saveUIPrefs()
 		return m, m.instanceChanged()
+	case keys.KeyCollapse, keys.KeyExpand:
+		if name == keys.KeyCollapse {
+			m.list.Collapse()
+		} else {
+			m.list.Expand()
+		}
+		m.saveUIPrefs()
+		return m, m.instanceChanged()
 	case keys.KeyActiveOnly:
 		m.list.SetActiveOnly(!m.list.ActiveOnly())
 		m.saveUIPrefs()
@@ -1021,6 +1035,11 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 	case keys.KeyEnter:
 		if m.list.NumInstances() == 0 {
 			return m, nil
+		}
+		if _, onHeader := m.list.SelectedHeader(); onHeader {
+			m.list.ToggleFold()
+			m.saveUIPrefs()
+			return m, m.instanceChanged()
 		}
 		selected := m.list.GetSelectedInstance()
 		if selected != nil && selected.Archived {
@@ -1212,6 +1231,11 @@ func (m *home) handleSidebarKey(name keys.KeyName) (bool, tea.Cmd) {
 		}
 		return true, m.focusSession()
 	case keys.KeyEnter:
+		if _, onHeader := m.list.SelectedHeader(); onHeader {
+			m.list.ToggleFold()
+			m.saveUIPrefs()
+			return true, m.instanceChanged()
+		}
 		if selected != nil && selected.Archived {
 			return true, m.resumeArchived(selected)
 		}
@@ -1272,6 +1296,9 @@ func (m *home) followKey() string {
 // scheduleFollow shows the selected session in the pane after a short pause, so moving
 // through the list does not respawn the pane on every keystroke.
 func (m *home) scheduleFollow() tea.Cmd {
+	if _, onHeader := m.list.SelectedHeader(); onHeader {
+		return nil // moving over a group header leaves the pane as it is
+	}
 	if m.followKey() == m.shown {
 		return nil
 	}
@@ -1285,6 +1312,9 @@ func (m *home) scheduleFollow() tea.Cmd {
 
 // showSelected puts the selected session, or the placeholder, in the pane.
 func (m *home) showSelected() tea.Cmd {
+	if _, onHeader := m.list.SelectedHeader(); onHeader {
+		return nil
+	}
 	key := m.followKey()
 	if key == m.shown {
 		return nil

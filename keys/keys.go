@@ -54,6 +54,9 @@ const (
 	KeyZoom         // z: zoom the session pane.
 
 	KeyResumeHistory // enter on a past session: resume it with claude --resume.
+
+	KeyCollapse // left: fold the group under the cursor.
+	KeyExpand   // right: unfold the group under the cursor, or enter it.
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -70,6 +73,8 @@ var GlobalKeyStringsMap = map[string]KeyName{
 	"z":          KeyToggleList,
 	"w":          KeyNextWaiting,
 	"t":          KeyTerminalView,
+	"left":       KeyCollapse,
+	"right":      KeyExpand,
 	"N":          KeyPrompt,
 	"enter":      KeyEnter,
 	"o":          KeyEnter,
@@ -198,6 +203,14 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyResumeHistory: key.NewBinding(
 		key.WithKeys("enter", "o"),
 		key.WithHelp("↵", "resume"),
+	),
+	KeyCollapse: key.NewBinding(
+		key.WithKeys("left"),
+		key.WithHelp("←/→", "fold"),
+	),
+	KeyExpand: key.NewBinding(
+		key.WithKeys("right"),
+		key.WithHelp("→", "unfold"),
 	),
 
 	// -- Special keybindings --

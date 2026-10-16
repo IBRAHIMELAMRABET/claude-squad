@@ -74,10 +74,18 @@ func TestProjectsRoundTripThroughConfigFile(t *testing.T) {
 	assert.Contains(t, string(data), `"paths": [`)
 }
 
-func TestPathGroup(t *testing.T) {
-	assert.Equal(t, "me/work/repo", PathGroup("/home/me/work/repo"))
-	assert.Equal(t, "fleet-control/enclave-tauri/src", PathGroup("C:/Users/me/fleet-control/enclave-tauri/src/"), "trailing slash ignored, last three segments")
-	assert.Equal(t, "repo", PathGroup("/repo/"))
-	assert.Equal(t, "", PathGroup(""))
-	assert.Equal(t, "", PathGroup("/"))
+func TestFolderGroupName(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	assert.Equal(t, "repo", FolderGroupName("/home/me/work/repo", 1), "the folder's own name")
+	assert.Equal(t, "work/repo", FolderGroupName("/home/me/work/repo", 2), "parents added to disambiguate")
+	assert.Equal(t, "repo", FolderGroupName("/repo/", 1))
+	assert.Equal(t, "~", FolderGroupName(home, 1), "the home directory")
+	assert.Equal(t, "~", FolderGroupName("/mnt/c/Users/me", 1), "a Windows profile seen from WSL")
+	assert.Equal(t, "Users/me", FolderGroupName("/mnt/c/Users/me", 2), "shown by path when disambiguating")
+	assert.Equal(t, "", FolderGroupName("", 1))
+	assert.Equal(t, "", FolderGroupName("/", 1))
+	assert.Equal(t, "/home/me/work/repo", FolderGroupPath("/home/me/work/repo/"))
+	assert.Equal(t, "", FolderGroupPath(""))
 }

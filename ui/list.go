@@ -6,6 +6,7 @@ import (
 	"claude-squad/session"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -102,6 +103,10 @@ type List struct {
 	layout []rowSpan
 	// compact draws the sidebar layout's rows: no title badge, no numbering, no padding.
 	compact bool
+
+	// headerCursor is the key of the group header the cursor is on, or "" when it is on a
+	// session. GetSelectedInstance returns nil while the cursor is on a header.
+	headerCursor string
 
 	// activeOnly hides paused sessions.
 	activeOnly bool
@@ -203,7 +208,7 @@ func (l *List) matches(i *session.Instance) bool {
 		return true
 	}
 	needle := strings.ToLower(l.filter)
-	for _, hay := range []string{i.Title, projectOf(i), i.RepoLabel(), i.Branch} {
+	for _, hay := range []string{i.Title, groupLabel(groupKey(i), 1), i.RepoLabel(), i.Branch} {
 		if strings.Contains(strings.ToLower(hay), needle) {
 			return true
 		}
@@ -223,8 +228,17 @@ func (l *List) WaitingCount() int {
 }
 
 // ensureVisibleSelection moves the selection to the first visible session when the
-// current one is filtered out or folded away.
+// current one is filtered out or folded away. A cursor on a header stays there while that
+// header is drawn.
 func (l *List) ensureVisibleSelection() {
+	if l.headerCursor != "" {
+		for _, r := range l.rows() {
+			if r.header && r.project == l.headerCursor {
+				return
+			}
+		}
+		l.headerCursor = ""
+	}
 	vis := l.visible()
 	if len(vis) == 0 || indexOf(vis, l.GetSelectedInstance()) != -1 {
 		return
@@ -403,24 +417,72 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool) s
 
 // listRow is one block of the rendered list: a project header or a session.
 type listRow struct {
-	header   bool
+	header bool
+	// project is the group key (see groupKey); name is the label drawn for it.
 	project  string
+	name     string
 	count    int
 	waiting  int
 	folded   bool
 	instance *session.Instance
 }
 
-// projectOf returns the display group of an instance: its project, else its folder group
-// (the last segments of its path), else the catch-all name.
-func projectOf(i *session.Instance) string {
+// groupKey returns the key of an instance's group: its project name, else the path of its
+// folder (sessions no project claims are grouped by folder), else the catch-all name.
+func groupKey(i *session.Instance) string {
 	if i.Project != "" {
 		return i.Project
 	}
-	if g := config.PathGroup(i.ProjectPath()); g != "" {
-		return g
+	if p := config.FolderGroupPath(i.ProjectPath()); p != "" {
+		return p
 	}
 	return config.OtherProject
+}
+
+// isFolderKey reports whether a group key is a folder path rather than a project name.
+func isFolderKey(key string) bool {
+	return filepath.IsAbs(key)
+}
+
+// groupLabel is the label of a group: the project name, or the folder's name with the
+// given number of path segments.
+func groupLabel(key string, segments int) string {
+	if !isFolderKey(key) {
+		return key
+	}
+	return config.FolderGroupName(key, segments)
+}
+
+// groupLabels names every group, adding parent folders to folder groups whose name would
+// otherwise collide with another group's.
+func groupLabels(keys []string) map[string]string {
+	labels := make(map[string]string, len(keys))
+	segments := make(map[string]int, len(keys))
+	for _, k := range keys {
+		segments[k] = 1
+		labels[k] = groupLabel(k, 1)
+	}
+	for round := 0; round < 8; round++ {
+		count := make(map[string]int, len(keys))
+		for _, k := range keys {
+			count[strings.ToLower(labels[k])]++
+		}
+		changed := false
+		for _, k := range keys {
+			if count[strings.ToLower(labels[k])] < 2 || !isFolderKey(k) {
+				continue
+			}
+			segments[k]++
+			if next := groupLabel(k, segments[k]); next != labels[k] {
+				labels[k] = next
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	return labels
 }
 
 // statusRank orders sessions inside a group: the ones needing attention first.
@@ -440,9 +502,10 @@ func statusRank(s session.Status) int {
 	return 2
 }
 
-// groups returns the project names in display order (alphabetical, Other last) and the
-// sessions of each group sorted by status, then most recent activity, then list order.
-func (l *List) groups() ([]string, map[string][]*session.Instance) {
+// groups returns the group keys in display order (named projects, then folder groups, each
+// alphabetically by label), the sessions of each group sorted by status, then most recent
+// activity, then list order, and the label of each group.
+func (l *List) groups() ([]string, map[string][]*session.Instance, map[string]string) {
 	byProject := make(map[string][]*session.Instance)
 	order := make(map[*session.Instance]int, len(l.items))
 	for idx, inst := range l.items {
@@ -450,29 +513,20 @@ func (l *List) groups() ([]string, map[string][]*session.Instance) {
 		if !l.matches(inst) {
 			continue
 		}
-		p := projectOf(inst)
+		p := groupKey(inst)
 		byProject[p] = append(byProject[p], inst)
 	}
 
-	// Named projects come first, then folder groups, each alphabetically.
-	named := make(map[string]bool, len(byProject))
-	for name, insts := range byProject {
-		for _, inst := range insts {
-			if inst.Project != "" {
-				named[name] = true
-				break
-			}
-		}
-	}
 	names := make([]string, 0, len(byProject))
 	for name := range byProject {
 		names = append(names, name)
 	}
+	labels := groupLabels(names)
 	sort.Slice(names, func(a, b int) bool {
-		if named[names[a]] != named[names[b]] {
-			return named[names[a]]
+		if fa, fb := isFolderKey(names[a]), isFolderKey(names[b]); fa != fb {
+			return fb
 		}
-		return strings.ToLower(names[a]) < strings.ToLower(names[b])
+		return strings.ToLower(labels[names[a]]) < strings.ToLower(labels[names[b]])
 	})
 
 	for _, insts := range byProject {
@@ -487,7 +541,7 @@ func (l *List) groups() ([]string, map[string][]*session.Instance) {
 			return order[insts[a]] < order[insts[b]]
 		})
 	}
-	return names, byProject
+	return names, byProject, labels
 }
 
 // showHeaders reports whether group headers are drawn: always, except when every session
@@ -499,7 +553,7 @@ func showHeaders(names []string) bool {
 // rows returns the list in display order: headers followed by their sessions, with folded
 // groups reduced to their header.
 func (l *List) rows() []listRow {
-	names, byProject := l.groups()
+	names, byProject, labels := l.groups()
 	headers := showHeaders(names)
 	var rows []listRow
 	for _, name := range names {
@@ -512,21 +566,27 @@ func (l *List) rows() []listRow {
 					waiting++
 				}
 			}
-			rows = append(rows, listRow{header: true, project: name, count: len(insts), waiting: waiting, folded: folded})
+			rows = append(rows, listRow{header: true, project: name, name: labels[name], count: len(insts), waiting: waiting, folded: folded})
 		}
 		if folded {
 			continue
 		}
 		for _, inst := range insts {
-			rows = append(rows, listRow{project: name, instance: inst})
+			rows = append(rows, listRow{project: name, name: labels[name], instance: inst})
 		}
 	}
 	return rows
 }
 
+// headersShown reports whether group headers are currently drawn.
+func (l *List) headersShown() bool {
+	names, _, _ := l.groups()
+	return showHeaders(names)
+}
+
 // ordered returns every session in display order, folded or not.
 func (l *List) ordered() []*session.Instance {
-	names, byProject := l.groups()
+	names, byProject, _ := l.groups()
 	var out []*session.Instance
 	for _, name := range names {
 		out = append(out, byProject[name]...)
@@ -554,7 +614,7 @@ func indexOf(insts []*session.Instance, target *session.Instance) int {
 	return -1
 }
 
-func (l *List) renderHeader(r listRow) string {
+func (l *List) renderHeader(r listRow, selected bool) string {
 	icon := unfoldedIcon
 	if r.folded {
 		icon = foldedIcon
@@ -569,12 +629,19 @@ func (l *List) renderHeader(r listRow) string {
 		waiting = fmt.Sprintf(" · %d waiting", r.waiting)
 	}
 	// Fit the name to the pane: " ▾ name count · n waiting".
-	name := r.project
+	name := r.name
+	if name == "" {
+		name = r.project
+	}
 	if l.width > 0 {
 		avail := l.width - 1 - runewidth.StringWidth(icon) - 1 - runewidth.StringWidth(count) - runewidth.StringWidth(waiting) - 1
 		if avail > 3 && runewidth.StringWidth(name) > avail {
 			name = runewidth.Truncate(name, avail-1, "…")
 		}
+	}
+	if selected {
+		// The cursor is on this header: draw it as a highlighted line.
+		return compactSelectedStyle.Bold(true).Render(fitLeft(fmt.Sprintf(" %s %s%s%s", icon, name, count, waiting), l.width-1))
 	}
 	parts := []string{
 		style.Render(fmt.Sprintf("%s %s", icon, name)),
@@ -656,7 +723,11 @@ func (l *List) String() string {
 			if i > 0 {
 				text = "\n"
 			}
-			text += l.renderHeader(r) + "\n"
+			onHeader := l.headerCursor != "" && r.project == l.headerCursor
+			text += l.renderHeader(r, onHeader) + "\n"
+			if onHeader {
+				selIdx = i
+			}
 		} else {
 			n++
 			if l.compact {
@@ -781,63 +852,142 @@ func countSessions(rows []listRow) int {
 	return n
 }
 
-// step moves the selection by delta positions through the visible sessions, wrapping.
-func (l *List) step(delta int) {
-	vis := l.visible()
-	if len(vis) == 0 {
-		return
+// selectedItem is the session the cursor was last on, even while it sits on a header.
+func (l *List) selectedItem() *session.Instance {
+	if l.selectedIdx < 0 || l.selectedIdx >= len(l.items) {
+		return nil
 	}
-	pos := indexOf(vis, l.GetSelectedInstance())
-	if pos == -1 {
-		l.SelectInstance(vis[0])
-		return
-	}
-	l.SelectInstance(vis[(pos+delta+len(vis))%len(vis)])
+	return l.items[l.selectedIdx]
 }
 
-// Down selects the next visible session.
+// cursorRow returns the index in rows of the row under the cursor, or -1.
+func (l *List) cursorRow(rows []listRow) int {
+	sel := l.selectedItem()
+	for i, r := range rows {
+		if l.headerCursor != "" {
+			if r.header && r.project == l.headerCursor {
+				return i
+			}
+			continue
+		}
+		if !r.header && r.instance == sel {
+			return i
+		}
+	}
+	return -1
+}
+
+// moveTo puts the cursor on a row.
+func (l *List) moveTo(r listRow) {
+	if r.header {
+		l.headerCursor = r.project
+		return
+	}
+	l.SelectInstance(r.instance)
+}
+
+// step moves the cursor by delta rows, headers included, wrapping around. When the selected
+// session is hidden in a folded group, the cursor first lands on that group's header.
+func (l *List) step(delta int) {
+	rows := l.rows()
+	if len(rows) == 0 {
+		return
+	}
+	pos := l.cursorRow(rows)
+	if pos == -1 {
+		if sel := l.selectedItem(); sel != nil {
+			key := groupKey(sel)
+			for _, r := range rows {
+				if r.header && r.project == key {
+					l.moveTo(r)
+					return
+				}
+			}
+		}
+		l.moveTo(rows[0])
+		return
+	}
+	l.moveTo(rows[(pos+delta+len(rows))%len(rows)])
+}
+
+// Down moves the cursor to the next row.
 func (l *List) Down() {
 	l.step(1)
 }
 
-// Up selects the previous visible session.
+// Up moves the cursor to the previous row.
 func (l *List) Up() {
 	l.step(-1)
 }
 
-// ToggleFold folds or unfolds the selected session's project group. When folding hides the
-// selection, the next visible session is selected instead.
+// SelectedHeader returns the key of the group header under the cursor, if any.
+func (l *List) SelectedHeader() (string, bool) {
+	return l.headerCursor, l.headerCursor != ""
+}
+
+// ToggleFold folds or unfolds the group under the cursor. Folding the group of the selected
+// session moves the cursor onto the group's header, so the same key unfolds it again.
 func (l *List) ToggleFold() {
-	if cur := l.GetSelectedInstance(); cur != nil {
-		l.ToggleFoldProject(projectOf(cur))
+	if key, ok := l.SelectedHeader(); ok {
+		l.ToggleFoldProject(key)
+		return
+	}
+	cur := l.GetSelectedInstance()
+	if cur == nil {
+		return
+	}
+	key := groupKey(cur)
+	if l.folded[key] {
+		delete(l.folded, key)
+		return
+	}
+	if !l.headersShown() {
+		return // nothing to fold into
+	}
+	l.folded[key] = true
+	l.headerCursor = key
+}
+
+// Collapse folds the group under the cursor (moving onto its header when on a session).
+func (l *List) Collapse() {
+	if key, ok := l.SelectedHeader(); ok {
+		if !l.folded[key] {
+			l.folded[key] = true
+		}
+		return
+	}
+	if cur := l.GetSelectedInstance(); cur != nil && !l.folded[groupKey(cur)] {
+		l.ToggleFold()
 	}
 }
 
-// ToggleFoldProject folds or unfolds a project group by name, moving a hidden selection to
-// the next visible session.
+// Expand unfolds the group whose header is under the cursor; on an unfolded header it
+// moves to the group's first session.
+func (l *List) Expand() {
+	key, ok := l.SelectedHeader()
+	if !ok {
+		return
+	}
+	if l.folded[key] {
+		delete(l.folded, key)
+		return
+	}
+	for _, r := range l.rows() {
+		if !r.header && r.project == key {
+			l.SelectInstance(r.instance)
+			return
+		}
+	}
+}
+
+// ToggleFoldProject folds or unfolds a group by key without moving the cursor (mouse
+// clicks on headers).
 func (l *List) ToggleFoldProject(project string) {
 	if l.folded[project] {
 		delete(l.folded, project)
 		return
 	}
-	cur := l.GetSelectedInstance()
-	var next *session.Instance
-	if cur != nil && projectOf(cur) == project {
-		// Pick the replacement before folding, searching forward with wrap-around.
-		ordered := l.ordered()
-		pos := indexOf(ordered, cur)
-		for i := 1; i < len(ordered); i++ {
-			cand := ordered[(pos+i)%len(ordered)]
-			if p := projectOf(cand); p != project && !l.folded[p] {
-				next = cand
-				break
-			}
-		}
-	}
 	l.folded[project] = true
-	if next != nil {
-		l.SelectInstance(next)
-	}
 }
 
 // NextWaiting selects the next session waiting for the user, after the current selection
@@ -852,7 +1002,7 @@ func (l *List) NextWaiting() bool {
 	for i := 1; i <= len(ordered); i++ {
 		cand := ordered[(pos+i)%len(ordered)]
 		if cand.NeedsAttention() {
-			delete(l.folded, projectOf(cand))
+			delete(l.folded, groupKey(cand))
 			l.SelectInstance(cand)
 			return true
 		}
@@ -923,7 +1073,7 @@ func (l *List) AddInstance(instance *session.Instance) (finalize func()) {
 	// A session the user just created must be visible, so unfold its group. Adopted and
 	// past sessions appear on their own and must not disturb the folds.
 	if !instance.Adopted && !instance.Archived {
-		delete(l.folded, projectOf(instance))
+		delete(l.folded, groupKey(instance))
 	}
 	return func() {
 		if instance.LastActivity.IsZero() {
@@ -932,20 +1082,23 @@ func (l *List) AddInstance(instance *session.Instance) (finalize func()) {
 	}
 }
 
-// GetSelectedInstance returns the currently selected instance
+// GetSelectedInstance returns the currently selected instance, or nil while the cursor is
+// on a group header.
 func (l *List) GetSelectedInstance() *session.Instance {
-	if len(l.items) == 0 || l.selectedIdx < 0 || l.selectedIdx >= len(l.items) {
+	if l.headerCursor != "" {
 		return nil
 	}
-	return l.items[l.selectedIdx]
+	return l.selectedItem()
 }
 
-// SetSelectedInstance sets the selected index. Noop if the index is out of bounds.
+// SetSelectedInstance sets the selected index and moves the cursor off any header. Noop if
+// the index is out of bounds.
 func (l *List) SetSelectedInstance(idx int) {
 	if idx < 0 || idx >= len(l.items) {
 		return
 	}
 	l.selectedIdx = idx
+	l.headerCursor = ""
 }
 
 // SelectInstance finds and selects the given instance in the list.

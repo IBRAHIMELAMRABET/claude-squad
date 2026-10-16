@@ -1,27 +1,49 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 // OtherProject is the display name used when a session has no path to group by at all.
 const OtherProject = "Other"
 
-// PathGroupSegments is how many trailing path segments name a folder group.
-const PathGroupSegments = 3
-
-// PathGroup names a session's folder group from its path when no project claims it, like a
-// session browser does: the last PathGroupSegments segments joined with "/", for example
-// "me/work/repo" for /home/me/work/repo. Empty for an empty path.
-func PathGroup(path string) string {
-	path = cleanPath(path)
-	if path == "" || path == string(filepath.Separator) {
+// FolderGroupPath returns the cleaned path that groups a session no project claims, or ""
+// when there is no usable path.
+func FolderGroupPath(path string) string {
+	p := cleanPath(path)
+	if p == "" || p == "." || p == string(filepath.Separator) {
 		return ""
 	}
-	parts := strings.Split(strings.Trim(filepath.ToSlash(path), "/"), "/")
-	if len(parts) > PathGroupSegments {
-		parts = parts[len(parts)-PathGroupSegments:]
+	return p
+}
+
+// windowsProfile matches a Windows user profile seen from WSL, e.g. /mnt/c/Users/me.
+var windowsProfile = regexp.MustCompile(`^/mnt/[a-z]/Users/[^/]+$`)
+
+// FolderGroupName names a folder group like a session browser does: the folder's own name,
+// or "~" for a home directory (the user's home, or a Windows user profile seen from WSL).
+// With segments > 1 the parent folders are included, to tell apart folders that share a
+// name; a home directory is then shown by its path too.
+func FolderGroupName(path string, segments int) string {
+	p := FolderGroupPath(path)
+	if p == "" {
+		return ""
+	}
+	if segments <= 1 {
+		if home, err := os.UserHomeDir(); err == nil && p == filepath.Clean(home) {
+			return "~"
+		}
+		if windowsProfile.MatchString(filepath.ToSlash(p)) {
+			return "~"
+		}
+		segments = 1
+	}
+	parts := strings.Split(strings.Trim(filepath.ToSlash(p), "/"), "/")
+	if len(parts) > segments {
+		parts = parts[len(parts)-segments:]
 	}
 	return strings.Join(parts, "/")
 }

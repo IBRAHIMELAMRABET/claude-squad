@@ -106,7 +106,7 @@ func TestGroupedOrder(t *testing.T) {
 	l.items[2].Project, l.items[2].Status = "Alpha", session.Running
 	l.items[3].Project = "" // no project: grouped by its folder, after the named projects
 
-	require.Equal(t, []string{"#Alpha", "c", "b", "#Zeta", "a", "#" + config.PathGroup(l.items[3].ProjectPath()), "d"}, rowLabels(l))
+	require.Equal(t, []string{"#Alpha", "c", "b", "#Zeta", "a", "#" + config.FolderGroupPath(l.items[3].ProjectPath()), "d"}, rowLabels(l))
 }
 
 func TestLastActivityBreaksTies(t *testing.T) {
@@ -120,44 +120,98 @@ func TestLastActivityBreaksTies(t *testing.T) {
 
 func TestSessionsWithoutProjectGroupByFolder(t *testing.T) {
 	l := newTestList("a", "b")
-	group := config.PathGroup(l.items[0].ProjectPath())
-	require.NotEmpty(t, group)
-	require.Equal(t, []string{"#" + group, "a", "b"}, rowLabels(l), "one folder header for both")
+	key := config.FolderGroupPath(l.items[0].ProjectPath())
+	require.NotEmpty(t, key)
+	require.Equal(t, []string{"#" + key, "a", "b"}, rowLabels(l), "one folder header for both")
+	require.Equal(t, "ui", l.rows()[0].name, "the header shows the folder's own name")
 }
 
-func TestFoldHidesGroupAndMovesSelection(t *testing.T) {
+func TestFolderGroupLabelsAreNamesAndDisambiguated(t *testing.T) {
+	labels := groupLabels([]string{"/w/one/Backend", "/w/two/Backend", "/w/app", "Fawri", "/w/Fawri"})
+	require.Equal(t, "one/Backend", labels["/w/one/Backend"], "same folder name: the parent is added")
+	require.Equal(t, "two/Backend", labels["/w/two/Backend"])
+	require.Equal(t, "app", labels["/w/app"])
+	require.Equal(t, "Fawri", labels["Fawri"], "project names never change")
+	require.Equal(t, "w/Fawri", labels["/w/Fawri"], "a folder clashing with a project gets its parent")
+}
+
+// Folding the selected session's group puts the cursor on the header, so the same key
+// unfolds it again: a fold can always be undone from the keyboard.
+func TestFoldPutsCursorOnHeaderAndUnfolds(t *testing.T) {
 	l := newTestList("a1", "a2", "b1")
 	l.items[0].Project, l.items[1].Project, l.items[2].Project = "A", "A", "B"
 	l.SelectInstance(l.items[0])
 
 	l.ToggleFold()
 	require.Equal(t, []string{"A"}, l.FoldedProjects())
-	require.Equal(t, "b1", l.GetSelectedInstance().Title, "selection moves to the next visible session")
+	require.Nil(t, l.GetSelectedInstance(), "the cursor is on the header")
+	key, onHeader := l.SelectedHeader()
+	require.True(t, onHeader)
+	require.Equal(t, "A", key)
 	require.Equal(t, []string{"#A", "#B", "b1"}, rowLabels(l))
 	require.True(t, l.rows()[0].folded)
 	require.Equal(t, 2, l.rows()[0].count)
 
-	l.ToggleFold() // fold B too: nothing left to select, selection stays
-	require.Equal(t, "b1", l.GetSelectedInstance().Title)
-	require.Empty(t, l.visible())
+	l.ToggleFold()
+	require.Empty(t, l.FoldedProjects(), "same key unfolds")
+	_, onHeader = l.SelectedHeader()
+	require.True(t, onHeader, "the cursor stays on the header")
 
-	l.ToggleFold() // unfolds the selected session's group
-	require.Equal(t, []string{"A"}, l.FoldedProjects())
-	require.Equal(t, []string{"b1"}, titlesOf(l.visible()))
+	l.Down()
+	require.Equal(t, "a1", l.GetSelectedInstance().Title, "down enters the group")
 }
 
-func TestNavigationWrapsAcrossVisibleSessions(t *testing.T) {
+func TestCollapseAndExpand(t *testing.T) {
+	l := newTestList("a1", "b1")
+	l.items[0].Project, l.items[1].Project = "A", "B"
+	l.SelectInstance(l.items[1])
+
+	l.Collapse()
+	require.Equal(t, []string{"B"}, l.FoldedProjects())
+	l.Collapse()
+	require.Equal(t, []string{"B"}, l.FoldedProjects(), "collapsing twice keeps it folded")
+
+	l.Expand()
+	require.Empty(t, l.FoldedProjects())
+	l.Expand()
+	require.Equal(t, "b1", l.GetSelectedInstance().Title, "expand on an open header enters the group")
+	l.Expand()
+	require.Equal(t, "b1", l.GetSelectedInstance().Title, "expand on a session does nothing")
+}
+
+func TestNavigationVisitsHeadersAndWraps(t *testing.T) {
 	l := newTestList("a1", "b1", "c1")
 	l.items[0].Project, l.items[1].Project, l.items[2].Project = "A", "B", "C"
 	l.SetFolded([]string{"B"})
 	l.SelectInstance(l.items[0])
 
 	l.Down()
-	require.Equal(t, "c1", l.GetSelectedInstance().Title, "skips the folded group")
+	key, _ := l.SelectedHeader()
+	require.Equal(t, "B", key, "the folded group's header is reachable")
 	l.Down()
-	require.Equal(t, "a1", l.GetSelectedInstance().Title, "wraps")
+	key, _ = l.SelectedHeader()
+	require.Equal(t, "C", key)
+	l.Down()
+	require.Equal(t, "c1", l.GetSelectedInstance().Title)
+	l.Down()
+	key, _ = l.SelectedHeader()
+	require.Equal(t, "A", key, "wraps to the first header")
 	l.Up()
 	require.Equal(t, "c1", l.GetSelectedInstance().Title)
+}
+
+func TestStepFromHiddenSelectionLandsOnItsHeader(t *testing.T) {
+	l := newTestList("a1", "b1")
+	l.items[0].Project, l.items[1].Project = "A", "B"
+	l.SelectInstance(l.items[1])
+	l.SetFolded([]string{"A", "B"}) // everything folded, selection hidden
+
+	l.Down()
+	key, onHeader := l.SelectedHeader()
+	require.True(t, onHeader)
+	require.Equal(t, "B", key)
+	l.ToggleFold()
+	require.Equal(t, []string{"A"}, l.FoldedProjects(), "and can be unfolded from there")
 }
 
 func TestAddInstanceUnfoldsItsGroup(t *testing.T) {

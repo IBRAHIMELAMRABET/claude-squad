@@ -116,14 +116,14 @@ func (m *Menu) SetActiveTab(tab int) {
 func (m *Menu) updateOptions() {
 	switch m.state {
 	case StateEmpty:
-		m.options = defaultMenuOptions
+		m.options = m.emptyOptions()
 	case StateDefault:
 		if m.instance != nil {
 			// When there is an instance, show that instance's options
 			m.addInstanceOptions()
 		} else {
 			// When there is no instance, show the empty state
-			m.options = defaultMenuOptions
+			m.options = m.emptyOptions()
 		}
 	case StateNewInstance:
 		m.options = newInstanceMenuOptions
@@ -189,12 +189,22 @@ func (m *Menu) addInstanceOptions() {
 	m.options = options
 }
 
+// emptyOptions are the keys shown when no session is selected (none exists, or the cursor
+// is on a group header).
+func (m *Menu) emptyOptions() []keys.KeyName {
+	if !m.sidebar {
+		return defaultMenuOptions
+	}
+	return []keys.KeyName{keys.KeyNew, keys.KeyPrompt, keys.KeyCollapse, keys.KeyNextWaiting,
+		keys.KeyActiveOnly, keys.KeySearch, keys.KeyHelp, keys.KeyQuit}
+}
+
 // sidebarOptions are the keys shown under the session list in the sidebar layout.
 func (m *Menu) sidebarOptions() []keys.KeyName {
 	options := []keys.KeyName{keys.KeyNew, keys.KeyPrompt}
 	if m.instance.Archived {
-		return append(options, keys.KeyResumeHistory, keys.KeyNextWaiting, keys.KeyActiveOnly, keys.KeySearch,
-			keys.KeyZoom, keys.KeyHelp, keys.KeyQuit)
+		return append(options, keys.KeyResumeHistory, keys.KeyCollapse, keys.KeyNextWaiting, keys.KeyActiveOnly,
+			keys.KeySearch, keys.KeyZoom, keys.KeyHelp, keys.KeyQuit)
 	}
 	if !m.instance.Adopted {
 		options = append(options, keys.KeyKill)
@@ -209,7 +219,25 @@ func (m *Menu) sidebarOptions() []keys.KeyName {
 		options = append(options, keys.KeySubmit)
 	}
 	return append(options, keys.KeyNextWaiting, keys.KeyActiveOnly, keys.KeySearch,
-		keys.KeyZoom, keys.KeyHelp, keys.KeyQuit)
+		keys.KeyCollapse, keys.KeyZoom, keys.KeyHelp, keys.KeyQuit)
+}
+
+// shortHelp holds shorter descriptions used by the narrow sidebar menu.
+var shortHelp = map[keys.KeyName]string{
+	keys.KeyPrompt:      "new+prompt",
+	keys.KeyNextWaiting: "waiting",
+	keys.KeyActiveOnly:  "active",
+	keys.KeySubmit:      "push",
+}
+
+// helpDesc returns the description of a key for the current layout.
+func (m *Menu) helpDesc(k keys.KeyName) string {
+	if m.sidebar {
+		if d, ok := shortHelp[k]; ok {
+			return d
+		}
+	}
+	return keys.GlobalkeyBindings[k].Help().Desc
 }
 
 // SidebarMenuHeight is the number of lines reserved for the compact menu.
@@ -230,9 +258,10 @@ func (m *Menu) compactString() string {
 	line := ""
 	for _, k := range m.options {
 		binding := keys.GlobalkeyBindings[k]
-		item := keyStyle.Render(binding.Help().Key) + " " + descStyle.Render(binding.Help().Desc)
+		desc := m.helpDesc(k)
+		item := keyStyle.Render(binding.Help().Key) + " " + descStyle.Render(desc)
 		if m.keyDown == k {
-			item = keyStyle.Underline(true).Render(binding.Help().Key) + " " + descStyle.Underline(true).Render(binding.Help().Desc)
+			item = keyStyle.Underline(true).Render(binding.Help().Key) + " " + descStyle.Underline(true).Render(desc)
 		}
 		itemWidth := lipgloss.Width(item)
 		if line != "" && lipgloss.Width(line)+2+itemWidth > m.width-1 {
