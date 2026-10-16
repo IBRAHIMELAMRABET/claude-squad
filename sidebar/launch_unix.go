@@ -65,6 +65,9 @@ func create(sidebarCommand string) error {
 		{"set-option", "-w", "-t", target, "remain-on-exit", "on"},
 		{"split-window", "-h", "-d", "-t", target, "-c", cwd, "sh " + shellQuote(placeholder)},
 		{"resize-pane", "-t", target, "-x", strconv.Itoa(Width)},
+		// A session pane whose command ended (the session was killed or exited) shows the
+		// placeholder instead of "Pane is dead".
+		{"set-hook", "-t", UISession, "pane-died", "respawn-pane -k -t " + UISession + ":0.1 " + shellQuote("sh "+placeholder)},
 		// Keep the sidebar width when the terminal is resized.
 		{"set-hook", "-t", UISession, "client-resized", "resize-pane -t " + target + " -x " + strconv.Itoa(Width)},
 		// Alt+arrows move between the panes, only inside the UI session.
