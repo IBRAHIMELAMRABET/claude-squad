@@ -83,7 +83,7 @@ func TestStatusState(t *testing.T) {
 }
 
 func TestSettingsCoversEveryEvent(t *testing.T) {
-	data, err := Settings("/usr/local/bin/cs hook")
+	data, err := Settings("/usr/local/bin/cs hook", nil)
 	require.NoError(t, err)
 
 	var parsed struct {
@@ -104,12 +104,12 @@ func TestSettingsCoversEveryEvent(t *testing.T) {
 
 func TestEnsureSettingsIsIdempotent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	path, err := EnsureSettings("/opt/cs")
+	path, err := EnsureSettings("/opt/cs", nil)
 	require.NoError(t, err)
 	first, err := os.Stat(path)
 	require.NoError(t, err)
 
-	again, err := EnsureSettings("/opt/cs")
+	again, err := EnsureSettings("/opt/cs", nil)
 	require.NoError(t, err)
 	require.Equal(t, path, again)
 	second, err := os.Stat(path)
@@ -158,4 +158,20 @@ func TestPruneDropsDeadPanes(t *testing.T) {
 	require.NoError(t, err, "unrelated files are left alone")
 
 	Prune(filepath.Join(dir, "missing"), nil) // no directory: no panic
+}
+
+func TestSettingsMergesExtraWithoutTouchingHooks(t *testing.T) {
+	extra := json.RawMessage(`{"model":"opus","hooks":{"Stop":[]},"extraKnownMarketplaces":{"m":{"source":{"source":"directory","path":"/x"}}}}`)
+	data, err := Settings("cs hook", extra)
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(data, &parsed))
+	require.Equal(t, "opus", parsed["model"])
+	require.Contains(t, parsed, "extraKnownMarketplaces")
+	hooks := parsed["hooks"].(map[string]any)
+	require.Len(t, hooks, len(Events), "the extra hooks key is ignored, ours wins")
+
+	_, err = Settings("cs hook", json.RawMessage(`[1,2]`))
+	require.Error(t, err, "claude_settings must be an object")
 }

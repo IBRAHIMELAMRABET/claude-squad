@@ -374,3 +374,9 @@ func TestGetNotificationsDefaultsToOn(t *testing.T) {
 	assert.Equal(t, Notifications{Bell: false, Title: true},
 		(&Config{Notifications: &Notifications{Bell: false, Title: true}}).GetNotifications())
 }
+
+func TestDrawerSidebarDefaultsToOn(t *testing.T) {
+	assert.True(t, (&Config{}).DrawerSidebar())
+	off := false
+	assert.False(t, (&Config{SidebarDrawer: &off}).DrawerSidebar())
+}

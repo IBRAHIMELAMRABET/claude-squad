@@ -174,7 +174,7 @@ var (
 				if err != nil {
 					return err
 				}
-				data, err := hooks.Settings(hooks.HookCommand(execPath))
+				data, err := hooks.Settings(hooks.HookCommand(execPath), nil)
 				if err != nil {
 					return err
 				}

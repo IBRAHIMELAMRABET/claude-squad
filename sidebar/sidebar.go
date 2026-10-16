@@ -164,6 +164,20 @@ func (c *Controller) FocusRight() error {
 	return c.exec.Run(exec.Command("tmux", "select-pane", "-t", pane))
 }
 
+// Zoomed reports whether the window is currently zoomed on one pane.
+func (c *Controller) Zoomed() bool {
+	out, err := c.exec.Output(exec.Command("tmux", "display-message", "-p", "-t", c.self, "#{window_zoomed_flag}"))
+	return err == nil && strings.TrimSpace(string(out)) == "1"
+}
+
+// ZoomSession zooms the session pane to the full window if it is not already.
+func (c *Controller) ZoomSession() error {
+	if c.Zoomed() {
+		return nil
+	}
+	return c.ToggleZoom()
+}
+
 // ToggleZoom zooms the session pane to the full window, or back.
 func (c *Controller) ToggleZoom() error {
 	pane, err := c.RightPane()

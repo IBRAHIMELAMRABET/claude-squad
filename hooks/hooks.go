@@ -168,8 +168,9 @@ func Remove(statusDir, pane string) {
 }
 
 // Settings returns the Claude Code settings JSON that routes every event in Events to
-// the given shell command.
-func Settings(command string) ([]byte, error) {
+// the given shell command. extra, when not empty, is a JSON object whose top-level keys are
+// added to the file; a "hooks" key in extra is ignored so the status hooks stay intact.
+func Settings(command string, extra json.RawMessage) ([]byte, error) {
 	entry := []map[string]any{{
 		"hooks": []map[string]string{{"type": "command", "command": command}},
 	}}
@@ -177,7 +178,14 @@ func Settings(command string) ([]byte, error) {
 	for _, ev := range Events {
 		hooks[ev] = entry
 	}
-	return json.MarshalIndent(map[string]any{"hooks": hooks}, "", "  ")
+	settings := map[string]any{}
+	if len(extra) > 0 {
+		if err := json.Unmarshal(extra, &settings); err != nil {
+			return nil, fmt.Errorf("claude_settings is not a JSON object: %w", err)
+		}
+	}
+	settings["hooks"] = hooks
+	return json.MarshalIndent(settings, "", "  ")
 }
 
 // HookCommand is the shell command Claude runs on each event for the given cs executable.
@@ -185,15 +193,15 @@ func HookCommand(execPath string) string {
 	return shellQuote(execPath) + " hook"
 }
 
-// EnsureSettings writes the settings file routing hook events to execPath, if it is
-// missing or out of date, and returns its path.
-func EnsureSettings(execPath string) (string, error) {
+// EnsureSettings writes the settings file routing hook events to execPath, merged with
+// the user's claude_settings, if it is missing or out of date, and returns its path.
+func EnsureSettings(execPath string, extra json.RawMessage) (string, error) {
 	dir, err := config.GetConfigDir()
 	if err != nil {
 		return "", err
 	}
 	path := filepath.Join(dir, SettingsFileName)
-	data, err := Settings(HookCommand(execPath))
+	data, err := Settings(HookCommand(execPath), extra)
 	if err != nil {
 		return "", err
 	}

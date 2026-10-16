@@ -295,7 +295,7 @@ func (m *home) Init() tea.Cmd {
 			return previewTickMsg{}
 		})
 	} else {
-		cmds = append(cmds, m.instanceChanged())
+		cmds = append(cmds, m.openOnStart())
 	}
 	return tea.Batch(cmds...)
 }
@@ -1212,6 +1212,8 @@ func (m *home) showSelected() tea.Cmd {
 }
 
 // focusSession shows the selected session right away and moves the cursor into its pane.
+// With the drawer behaviour the session also takes the full window; moving back to the
+// list (Alt+Left) unzooms it again.
 func (m *home) focusSession() tea.Cmd {
 	if cmd := m.showSelected(); cmd != nil {
 		return cmd
@@ -1222,7 +1224,21 @@ func (m *home) focusSession() tea.Cmd {
 	if err := m.sidebar.FocusRight(); err != nil {
 		return m.handleError(err)
 	}
+	if m.appConfig.DrawerSidebar() {
+		if err := m.sidebar.ZoomSession(); err != nil {
+			return m.handleError(err)
+		}
+	}
 	return nil
+}
+
+// openOnStart puts the cursor straight into the selected session when the layout starts
+// with sessions, so the first screen is Claude, not the list.
+func (m *home) openOnStart() tea.Cmd {
+	if m.followTarget() == "" {
+		return m.instanceChanged()
+	}
+	return m.focusSession()
 }
 
 // showPaneHelp pages the help text in the session pane.

@@ -77,6 +77,19 @@ type Config struct {
 	// DefaultMode is how new sessions run: ModeWorktree (isolated worktree and branch, the
 	// default) or ModeInPlace (directly in the repository on its current branch).
 	DefaultMode string `json:"default_mode,omitempty"`
+	// ClaudeSettings is merged into the settings file passed to claude sessions started by
+	// cs (`--settings`). Use it for machine-specific Claude settings that must not live in
+	// the shared ~/.claude/settings.json, such as marketplaces under WSL-only paths.
+	ClaudeSettings json.RawMessage `json:"claude_settings,omitempty"`
+	// SidebarDrawer, in the sidebar layout, zooms the session to the full window whenever
+	// it takes focus, so the list only shows when you move back to it (Alt+Left). Omitted
+	// means on.
+	SidebarDrawer *bool `json:"sidebar_drawer,omitempty"`
+}
+
+// DrawerSidebar reports whether the sidebar behaves as a drawer (session zoomed on focus).
+func (c *Config) DrawerSidebar() bool {
+	return c.SidebarDrawer == nil || *c.SidebarDrawer
 }
 
 const (

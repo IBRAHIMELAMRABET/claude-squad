@@ -89,8 +89,10 @@ mouse, scrollback and cursor, while the list stays visible.
 └──────────────────────┴────────────────────────────────────────┘
 ```
 
-- Moving in the list shows that session on the right; `↵` moves the cursor into it.
-- `Alt-←` / `Alt-→` move between the list and the session.
+- Moving in the list shows that session on the right; `↵` moves the cursor into it and, by
+  default, zooms it to the full window so Claude looks exactly as it does on its own
+  (`sidebar_drawer`). With sessions present, `cs` opens straight into the selected one.
+- `Alt-←` brings the list back (and unzooms); `Alt-→` returns to the session.
 - `tab` pages the session's diff on the right, `t` opens a shell in its directory; leaving
   either returns to the session. `?` pages the help there.
 - `z` zooms the session to the full window and back. `q` closes the layout; sessions keep
@@ -183,6 +185,8 @@ All of these are optional; without them the fork behaves like upstream plus grou
 | `default_mode` | `"worktree"` | `"inplace"` makes new sessions run directly in the repository on its current branch. `tab` while naming a session switches per session. |
 | `max_instances` | `10` | Maximum number of sessions. |
 | `disable_hooks` | `false` | Do not pass the generated hooks settings file to `claude`; status then comes from the screen only. |
+| `claude_settings` | unset | JSON object merged into that settings file, for machine-specific Claude settings that must not live in a shared `~/.claude/settings.json` (for example plugin marketplaces under WSL-only paths). The `hooks` key is reserved. |
+| `sidebar_drawer` | `true` | In the sidebar layout, zoom the session to the full window when it takes focus; `Alt-←` brings the list back. `false` keeps both panes visible. |
 | `notifications` | `{"bell": true, "title": true}` | Ring the terminal bell when a session starts waiting, and keep the waiting count in the window title. |
 | `disable_adopt` | `false` | Do not list agent sessions running in tmux sessions `cs` did not create. |
 | `adopt_programs` | `["claude"]` | Foreground program names that qualify a foreign tmux pane for adoption. |

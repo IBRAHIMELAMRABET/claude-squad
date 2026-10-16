@@ -711,9 +711,11 @@ func TestSidebarFollowsTheSelection(t *testing.T) {
 	require.Contains(t, ran[0], "tmux respawn-pane -k -t %1 sh ")
 
 	// Enter focuses the pane; the session is already shown so nothing is respawned.
+	ran = ran[:0]
 	h.keySent = true
 	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyEnter})
-	require.Equal(t, "tmux select-pane -t %1", ran[len(ran)-1])
+	require.Contains(t, ran, "tmux select-pane -t %1")
+	require.NotContains(t, strings.Join(ran, " "), "respawn-pane")
 
 	// z zooms the pane instead of hiding the list.
 	h.keySent = true
@@ -759,4 +761,24 @@ func TestConfirmedActionResultIsDelivered(t *testing.T) {
 		}
 	}
 	require.True(t, sawErr, "the action's error is delivered to Update")
+}
+
+// With the drawer behaviour, focusing a session also zooms its pane.
+func TestDrawerZoomsOnFocus(t *testing.T) {
+	var ran []string
+	h := sidebarHome(t, &ran)
+	adopted := session.NewAdoptedInstance(tmux.Pane{Session: "scratch", ID: "%7", Command: "claude", Path: t.TempDir()})
+	h.list.AddInstance(adopted)()
+
+	require.Nil(t, h.openOnStart(), "starts straight in the session")
+	require.Equal(t, "scratch", h.shown)
+	require.Contains(t, ran, "tmux select-pane -t %1")
+	require.Contains(t, ran, "tmux resize-pane -Z -t %1", "zoomed because the drawer is on by default")
+
+	off := false
+	h.appConfig.SidebarDrawer = &off
+	ran = nil
+	h.keySent = true
+	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyEnter})
+	require.Equal(t, []string{"tmux select-pane -t %1"}, ran, "no zoom when the drawer is off")
 }

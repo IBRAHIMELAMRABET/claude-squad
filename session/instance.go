@@ -244,7 +244,8 @@ func (i *Instance) RepoName() (string, error) {
 // launchProgram is the command actually started in tmux: the configured program plus, for
 // claude, the --settings flag that routes its hook events to `cs hook`.
 func (i *Instance) launchProgram() string {
-	if config.LoadConfig().DisableHooks || !hooks.IsClaude(i.Program) {
+	cfg := config.LoadConfig()
+	if cfg.DisableHooks || !hooks.IsClaude(i.Program) {
 		return i.Program
 	}
 	execPath, err := os.Executable()
@@ -252,7 +253,7 @@ func (i *Instance) launchProgram() string {
 		log.WarningLog.Printf("hooks disabled for %q: cannot locate cs executable: %v", i.Title, err)
 		return i.Program
 	}
-	settings, err := hooks.EnsureSettings(execPath)
+	settings, err := hooks.EnsureSettings(execPath, cfg.ClaudeSettings)
 	if err != nil {
 		log.WarningLog.Printf("hooks disabled for %q: %v", i.Title, err)
 		return i.Program
