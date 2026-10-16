@@ -519,6 +519,10 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelpScreen(helpStart(msg.instance), nil)
 		}
 
+		if m.sidebar != nil {
+			// A session you just created is where you want to be: open it right away.
+			return m, tea.Batch(tea.WindowSize(), m.focusSession())
+		}
 		return m, tea.Batch(tea.WindowSize(), m.instanceChanged())
 	case spinner.TickMsg:
 		var cmd tea.Cmd

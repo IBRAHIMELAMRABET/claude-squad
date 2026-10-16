@@ -782,3 +782,25 @@ func TestDrawerZoomsOnFocus(t *testing.T) {
 	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyEnter})
 	require.Equal(t, []string{"tmux select-pane -t %1"}, ran, "no zoom when the drawer is off")
 }
+
+// In the sidebar layout a newly started session is shown and focused at once.
+func TestSidebarFocusesNewlyStartedSession(t *testing.T) {
+	var ran []string
+	h := sidebarHome(t, &ran)
+	h.storage = newTestStorage(t)
+	adopted := session.NewAdoptedInstance(tmux.Pane{Session: "fresh", ID: "%9", Command: "claude", Path: t.TempDir()})
+	h.list.AddInstance(adopted)()
+
+	h.Update(instanceStartedMsg{instance: adopted})
+	require.Equal(t, "fresh", h.shown)
+	require.Contains(t, ran, "tmux select-pane -t %1")
+	require.Contains(t, ran, "tmux resize-pane -Z -t %1")
+}
+
+// newTestStorage returns a Storage backed by memory so Update paths that save do not touch disk.
+func newTestStorage(t *testing.T) *session.Storage {
+	t.Helper()
+	st, err := session.NewStorage(config.DefaultState())
+	require.NoError(t, err)
+	return st
+}
