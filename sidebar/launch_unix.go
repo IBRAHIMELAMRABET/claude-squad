@@ -64,12 +64,15 @@ func create(sidebarCommand string) error {
 		{"set-option", "-t", UISession, "mouse", "on"},
 		{"set-option", "-w", "-t", target, "remain-on-exit", "on"},
 		{"split-window", "-h", "-d", "-t", target, "-c", cwd, "sh " + shellQuote(placeholder)},
-		{"resize-pane", "-t", target, "-x", strconv.Itoa(Width)},
+		// main-vertical keeps the sidebar as the fixed-width main pane on the left; the global
+		// hook re-applies it when the terminal is resized (hooks on client events are global).
+		{"set-option", "-w", "-t", target, "main-pane-width", strconv.Itoa(Width)},
+		{"select-layout", "-t", target, "main-vertical"},
+		{"set-hook", "-g", "client-resized",
+			"if-shell -F '#{==:#{session_name}," + UISession + "}' 'select-layout -t " + UISession + ":0 main-vertical'"},
 		// A session pane whose command ended (the session was killed or exited) shows the
 		// placeholder instead of "Pane is dead".
 		{"set-hook", "-t", UISession, "pane-died", "respawn-pane -k -t " + UISession + ":0.1 " + shellQuote("sh "+placeholder)},
-		// Keep the sidebar width when the terminal is resized.
-		{"set-hook", "-t", UISession, "client-resized", "resize-pane -t " + target + " -x " + strconv.Itoa(Width)},
 		// Alt+arrows move between the panes, only inside the UI session.
 		{"bind-key", "-n", "M-Left", "if-shell", "-F", "#{==:#{session_name}," + UISession + "}", "select-pane -L", "send-keys M-Left"},
 		{"bind-key", "-n", "M-Right", "if-shell", "-F", "#{==:#{session_name}," + UISession + "}", "select-pane -R", "send-keys M-Right"},
