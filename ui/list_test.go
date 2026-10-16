@@ -426,3 +426,15 @@ func TestCompactRows(t *testing.T) {
 	l.SetFilter("ru")
 	require.Contains(t, l.String(), "/ru", "filters still show, as a dim line")
 }
+
+func TestHeaderFitsTheWidth(t *testing.T) {
+	l := newTestList("x")
+	l.items[0].Project = "IbrahimLAMRABET/fleet-control/enclave-tauri"
+	l.SetCompact(true)
+	l.SetSize(32, 10)
+	for _, line := range strings.Split(l.String(), "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 32, "line too wide: %q", line)
+	}
+	require.Contains(t, l.String(), "…", "the name is shortened")
+	require.Contains(t, l.String(), " 1 ", "the count stays")
+}

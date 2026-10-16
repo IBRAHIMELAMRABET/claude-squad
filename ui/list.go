@@ -563,12 +563,25 @@ func (l *List) renderHeader(r listRow) string {
 	if c := l.projectColors[r.project]; c != "" {
 		style = style.Foreground(lipgloss.Color(c))
 	}
-	parts := []string{
-		style.Render(fmt.Sprintf("%s %s", icon, r.project)),
-		groupCountStyle.Render(fmt.Sprintf("%d", r.count)),
-	}
+	count := fmt.Sprintf(" %d", r.count)
+	waiting := ""
 	if r.waiting > 0 {
-		parts = append(parts, waitingStyle.Render(fmt.Sprintf(" · %d waiting", r.waiting)))
+		waiting = fmt.Sprintf(" · %d waiting", r.waiting)
+	}
+	// Fit the name to the pane: " ▾ name count · n waiting".
+	name := r.project
+	if l.width > 0 {
+		avail := l.width - 1 - runewidth.StringWidth(icon) - 1 - runewidth.StringWidth(count) - runewidth.StringWidth(waiting) - 1
+		if avail > 3 && runewidth.StringWidth(name) > avail {
+			name = runewidth.Truncate(name, avail-1, "…")
+		}
+	}
+	parts := []string{
+		style.Render(fmt.Sprintf("%s %s", icon, name)),
+		groupCountStyle.Render(count),
+	}
+	if waiting != "" {
+		parts = append(parts, waitingStyle.Render(waiting))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }

@@ -7,6 +7,7 @@ import (
 	"claude-squad/session/tmux"
 	"claude-squad/ui"
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,8 @@ func historyHome(t *testing.T) *home {
 }
 
 func TestReconcileHistory(t *testing.T) {
+	dirExists = func(string) bool { return true }
+	defer func() { dirExists = func(p string) bool { info, err := os.Stat(p); return err == nil && info.IsDir() } }()
 	h := historyHome(t)
 	now := time.Now()
 	entries := []history.Entry{
@@ -68,7 +71,15 @@ func TestReconcileHistory(t *testing.T) {
 	require.Equal(t, 1, h.list.NumInstances(), "only the running instance remains")
 }
 
+func TestReconcileHistorySkipsMissingDirectories(t *testing.T) {
+	h := historyHome(t)
+	require.False(t, h.reconcileHistory([]history.Entry{{ID: "gone", CWD: "/definitely/not/here", Title: "x", Updated: time.Now()}}))
+	require.Zero(t, h.list.NumInstances())
+}
+
 func TestReconcileHistoryIgnoresSessionsReportedByHooks(t *testing.T) {
+	dirExists = func(string) bool { return true }
+	defer func() { dirExists = func(p string) bool { info, err := os.Stat(p); return err == nil && info.IsDir() } }()
 	h := historyHome(t)
 	adopted := session.NewAdoptedInstance(tmux.Pane{Session: "scratch", ID: "%1", Command: "claude", Path: "/home/me/repo"})
 	adopted.ClaudeSessionID = "live-id"
@@ -144,6 +155,7 @@ func TestHistoryIgnoredDefaults(t *testing.T) {
 	cfg := &config.Config{}
 	require.True(t, cfg.HistoryIgnored("/mnt/c/Users/me/AppData/Local/Temp/claude/x"))
 	require.True(t, cfg.HistoryIgnored("/tmp/scratch"))
+	require.True(t, cfg.HistoryIgnored("/mnt/c/Users/me/AppData/Local/Temp"), "the folder itself, without a trailing slash")
 	require.False(t, cfg.HistoryIgnored("/mnt/c/Projects/Fawri"))
 
 	cfg.HistoryIgnore = []string{"/archive/"}

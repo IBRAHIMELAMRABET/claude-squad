@@ -7,6 +7,7 @@ import (
 	"claude-squad/session/git"
 	"claude-squad/session/history"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -67,8 +68,8 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 	wanted := make(map[string]history.Entry, len(entries))
 	for _, e := range entries {
 		cwd := config.NormalizePath(e.CWD)
-		if live[e.ID] || m.appConfig.HistoryIgnored(cwd) {
-			continue
+		if live[e.ID] || m.appConfig.HistoryIgnored(cwd) || !dirExists(cwd) {
+			continue // a session cannot be resumed where its directory is gone
 		}
 		e.CWD = cwd
 		wanted[e.ID] = e
@@ -105,6 +106,12 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 		changed = true
 	}
 	return changed
+}
+
+// dirExists reports whether path is an existing directory. Overridable in tests.
+var dirExists = func(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // runningCount is the number of sessions that count against max_instances: everything

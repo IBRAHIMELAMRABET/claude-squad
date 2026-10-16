@@ -1601,8 +1601,12 @@ func (m *home) View() string {
 		listAndPreview = lipgloss.JoinHorizontal(lipgloss.Top, listWithPadding, previewWithPadding)
 	}
 
+	align := lipgloss.Center
+	if m.sidebar != nil {
+		align = lipgloss.Left // the compact menu must not be centered under a wider list
+	}
 	mainView := lipgloss.JoinVertical(
-		lipgloss.Center,
+		align,
 		listAndPreview,
 		m.menu.String(),
 		m.errBox.String(),

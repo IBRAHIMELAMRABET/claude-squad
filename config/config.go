@@ -118,6 +118,7 @@ func (c *Config) HistoryIgnored(dir string) bool {
 	if patterns == nil {
 		patterns = DefaultHistoryIgnore
 	}
+	dir = filepath.ToSlash(dir) + "/" // so a fragment with a trailing slash matches the directory itself
 	for _, p := range patterns {
 		if p != "" && strings.Contains(dir, p) {
 			return true
