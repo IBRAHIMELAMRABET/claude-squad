@@ -190,7 +190,7 @@ All of these are optional; without them the fork behaves like upstream plus grou
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `projects_root` | unset | Directory whose first-level folders name projects: a repository at `<root>/<Project>/...` belongs to `<Project>`. |
+| `projects_root` | unset | Directory whose first-level folders name projects: a repository at `<root>/<Project>/...` belongs to `<Project>`. Sessions matching no project are grouped by their folder, shown as its last three path segments. |
 | `projects` | `[]` | Explicit projects, checked before the folder rule. Each has a `name`, an optional `color` (hex) for its header, and `paths`: directories (matching everything beneath them) or glob patterns (`dir/**` matches everything under `dir`). |
 | `worktree_dir` | `~/.claude-squad/worktrees` | Where worktrees are created. `~` is expanded. |
 | `worktree_next_to_repo` | `false` | Put each worktree under `.claude-squad-worktrees/<repo>` beside its repository, so repo and worktree share a filesystem (useful for `/mnt/c` repositories under WSL). |
@@ -198,6 +198,7 @@ All of these are optional; without them the fork behaves like upstream plus grou
 | `max_instances` | `10` | Maximum number of sessions. |
 | `disable_hooks` | `false` | Do not pass the generated hooks settings file to `claude`; status then comes from the screen only. |
 | `claude_settings` | unset | JSON object merged into that settings file, for machine-specific Claude settings that must not live in a shared `~/.claude/settings.json` (for example plugin marketplaces under WSL-only paths). The `hooks` key is reserved. |
+| `sidebar_width` | `32` | Width of the session list pane, in columns. |
 | `sidebar_drawer` | `true` | In the sidebar layout, zoom the session to the full window when it takes focus; `Alt-←` brings the list back. `false` keeps both panes visible. |
 | `disable_history` | `false` | Do not list past Claude sessions from `~/.claude/projects`. |
 | `history_limit` | `8` | Past sessions listed per project directory. |

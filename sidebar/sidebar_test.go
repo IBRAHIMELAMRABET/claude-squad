@@ -40,13 +40,13 @@ func TestScripts(t *testing.T) {
 
 func newTestController(t *testing.T, exec cmd_test.MockCmdExec) *Controller {
 	t.Setenv("HOME", t.TempDir())
-	c, err := New("%0", exec)
+	c, err := New("%0", exec, 36)
 	require.NoError(t, err)
 	return c
 }
 
 func TestNewRequiresTmux(t *testing.T) {
-	_, err := New("", cmd_test.MockCmdExec{})
+	_, err := New("", cmd_test.MockCmdExec{}, 36)
 	require.Error(t, err)
 }
 

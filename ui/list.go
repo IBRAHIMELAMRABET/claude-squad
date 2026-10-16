@@ -100,6 +100,8 @@ type List struct {
 	offset int
 	// layout records which line of the last render belongs to which row, for mouse clicks.
 	layout []rowSpan
+	// compact draws the sidebar layout's rows: no title badge, no numbering, no padding.
+	compact bool
 
 	// activeOnly hides paused sessions.
 	activeOnly bool
@@ -121,7 +123,17 @@ func NewList(spinner *spinner.Model, autoYes bool) *List {
 func (l *List) SetSize(width, height int) {
 	l.width = width
 	l.height = height
-	l.renderer.setWidth(width)
+	if l.compact {
+		l.renderer.width = width - 1
+	} else {
+		l.renderer.setWidth(width)
+	}
+}
+
+// SetCompact switches to the compact rows of the sidebar layout.
+func (l *List) SetCompact(on bool) {
+	l.compact = on
+	l.SetSize(l.width, l.height)
 }
 
 // SetSessionPreviewSize sets the height and width for the tmux sessions. This makes the stdout line have the correct
@@ -399,12 +411,16 @@ type listRow struct {
 	instance *session.Instance
 }
 
-// projectOf returns the display group of an instance.
+// projectOf returns the display group of an instance: its project, else its folder group
+// (the last segments of its path), else the catch-all name.
 func projectOf(i *session.Instance) string {
-	if i.Project == "" {
-		return config.OtherProject
+	if i.Project != "" {
+		return i.Project
 	}
-	return i.Project
+	if g := config.PathGroup(i.ProjectPath()); g != "" {
+		return g
+	}
+	return config.OtherProject
 }
 
 // statusRank orders sessions inside a group: the ones needing attention first.
@@ -438,15 +454,25 @@ func (l *List) groups() ([]string, map[string][]*session.Instance) {
 		byProject[p] = append(byProject[p], inst)
 	}
 
+	// Named projects come first, then folder groups, each alphabetically.
+	named := make(map[string]bool, len(byProject))
+	for name, insts := range byProject {
+		for _, inst := range insts {
+			if inst.Project != "" {
+				named[name] = true
+				break
+			}
+		}
+	}
 	names := make([]string, 0, len(byProject))
 	for name := range byProject {
 		names = append(names, name)
 	}
 	sort.Slice(names, func(a, b int) bool {
-		if names[a] == config.OtherProject || names[b] == config.OtherProject {
-			return names[b] == config.OtherProject
+		if named[names[a]] != named[names[b]] {
+			return named[names[a]]
 		}
-		return names[a] < names[b]
+		return strings.ToLower(names[a]) < strings.ToLower(names[b])
 	})
 
 	for _, insts := range byProject {
@@ -465,7 +491,7 @@ func (l *List) groups() ([]string, map[string][]*session.Instance) {
 }
 
 // showHeaders reports whether group headers are drawn: always, except when every session
-// sits in the catch-all group, where a lone "Other" header would be noise.
+// sits in the catch-all group with no path to name it, where a lone header would be noise.
 func showHeaders(names []string) bool {
 	return !(len(names) == 1 && names[0] == config.OtherProject)
 }
@@ -551,39 +577,57 @@ func (l *List) String() string {
 	const titleText = " Instances "
 	const autoYesText = " auto-yes "
 
-	// Write the title.
 	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString("\n")
-
-	// Write title line: the title, then badges for the active filters and the number of
-	// sessions waiting for the user.
-	// add padding of 2 because the border on list items adds some extra characters
-	titleWidth := AdjustPreviewWidth(l.width) + 2
-	left := mainTitle.Render(titleText)
-	if l.activeOnly {
-		left += " " + badgeStyle.Render(" active ")
-	}
-	if l.filter != "" {
-		left += " " + badgeStyle.Render(" /"+l.filter+" ")
-	}
-	if n := l.WaitingCount(); n > 0 {
-		left += " " + waitingStyle.Render(fmt.Sprintf("%d waiting", n))
-	}
-	if !l.autoyes {
-		b.WriteString(lipgloss.Place(
-			titleWidth, 1, lipgloss.Left, lipgloss.Bottom, left))
+	if l.compact {
+		// No title badge: just one dim line with the active filters and the waiting count,
+		// when there is anything to say.
+		var parts []string
+		if l.activeOnly {
+			parts = append(parts, "active only")
+		}
+		if l.filter != "" {
+			parts = append(parts, "/"+l.filter)
+		}
+		if n := l.WaitingCount(); n > 0 {
+			parts = append(parts, waitingStyle.Render(fmt.Sprintf("%d waiting", n)))
+		}
+		if len(parts) > 0 {
+			b.WriteString(" " + moreStyle.Render(strings.Join(parts, " · ")) + "\n")
+		}
 	} else {
-		title := lipgloss.Place(
-			titleWidth/2, 1, lipgloss.Left, lipgloss.Bottom, left)
-		autoYes := lipgloss.Place(
-			titleWidth-(titleWidth/2), 1, lipgloss.Right, lipgloss.Bottom, autoYesStyle.Render(autoYesText))
-		b.WriteString(lipgloss.JoinHorizontal(
-			lipgloss.Top, title, autoYes))
-	}
+		// Write the title.
+		b.WriteString("\n")
+		b.WriteString("\n")
 
-	b.WriteString("\n")
-	b.WriteString("\n")
+		// Write title line: the title, then badges for the active filters and the number of
+		// sessions waiting for the user.
+		// add padding of 2 because the border on list items adds some extra characters
+		titleWidth := AdjustPreviewWidth(l.width) + 2
+		left := mainTitle.Render(titleText)
+		if l.activeOnly {
+			left += " " + badgeStyle.Render(" active ")
+		}
+		if l.filter != "" {
+			left += " " + badgeStyle.Render(" /"+l.filter+" ")
+		}
+		if n := l.WaitingCount(); n > 0 {
+			left += " " + waitingStyle.Render(fmt.Sprintf("%d waiting", n))
+		}
+		if !l.autoyes {
+			b.WriteString(lipgloss.Place(
+				titleWidth, 1, lipgloss.Left, lipgloss.Bottom, left))
+		} else {
+			title := lipgloss.Place(
+				titleWidth/2, 1, lipgloss.Left, lipgloss.Bottom, left)
+			autoYes := lipgloss.Place(
+				titleWidth-(titleWidth/2), 1, lipgloss.Right, lipgloss.Bottom, autoYesStyle.Render(autoYesText))
+			b.WriteString(lipgloss.JoinHorizontal(
+				lipgloss.Top, title, autoYes))
+		}
+
+		b.WriteString("\n")
+		b.WriteString("\n")
+	}
 
 	// Render the rows as blocks (a header, or a session with its blank separator), then
 	// draw the window of blocks that fits the pane and contains the selection.
@@ -602,10 +646,14 @@ func (l *List) String() string {
 			text += l.renderHeader(r) + "\n"
 		} else {
 			n++
-			if i > 0 && !rows[i-1].header {
-				text = "\n"
+			if l.compact {
+				text = l.renderer.RenderCompact(r.instance, r.instance == selected) + "\n"
+			} else {
+				if i > 0 && !rows[i-1].header {
+					text = "\n"
+				}
+				text += l.renderer.Render(r.instance, n, r.instance == selected) + "\n"
 			}
-			text += l.renderer.Render(r.instance, n, r.instance == selected) + "\n"
 			if r.instance == selected {
 				selIdx = i
 			}

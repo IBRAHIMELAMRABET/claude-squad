@@ -659,7 +659,7 @@ func sidebarHome(t *testing.T, ran *[]string) *home {
 	ctl, err := sidebar.New("%0", cmd_test.MockCmdExec{
 		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return []byte("%0\t0\n%1\t37\n"), nil },
 		RunFunc:    func(c *exec.Cmd) error { *ran = append(*ran, strings.Join(c.Args, " ")); return nil },
-	})
+	}, 36)
 	require.NoError(t, err)
 	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	h := &home{
@@ -674,6 +674,7 @@ func sidebarHome(t *testing.T, ran *[]string) *home {
 		sidebar:      ctl,
 	}
 	h.menu.SetSidebar(true)
+	h.list.SetCompact(true)
 	return h
 }
 
@@ -683,7 +684,7 @@ func TestSidebarLayoutShowsOnlyTheList(t *testing.T) {
 	h.updateHandleWindowSizeEvent(tea.WindowSizeMsg{Width: 36, Height: 40})
 
 	view := h.View()
-	require.Contains(t, view, "Instances")
+	require.NotContains(t, view, "Instances", "the sidebar has no title badge")
 	require.NotContains(t, view, "Preview")
 	require.NotContains(t, view, "Diff")
 	for _, line := range strings.Split(view, "\n") {

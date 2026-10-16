@@ -4,6 +4,7 @@ import (
 	"claude-squad/config"
 	"claude-squad/log"
 	"claude-squad/session"
+	"claude-squad/session/git"
 	"claude-squad/session/history"
 	"fmt"
 	"path/filepath"
@@ -92,7 +93,14 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 			continue
 		}
 		inst := session.NewArchivedInstance(e.ID, e.Title, e.CWD, e.LastPrompt, e.Updated)
-		inst.Project = m.appConfig.ProjectFor(inst.Path)
+		// Group by the repository the session worked in, resolving worktrees to their main
+		// repository; directories outside any repository group by themselves.
+		groupPath := e.CWD
+		if root, err := git.MainRepoRoot(e.CWD); err == nil {
+			groupPath = root
+		}
+		inst.Project = m.appConfig.ProjectFor(groupPath)
+		inst.GroupPath = groupPath
 		m.list.AddInstance(inst)()
 		changed = true
 	}
@@ -173,7 +181,7 @@ func (m *home) uniqueTitle(title string) string {
 func archivedCard(inst *session.Instance) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n  %s\n\n", inst.Title)
-	fmt.Fprintf(&b, "  Project    %s\n", projectOrOther(inst.Project))
+	fmt.Fprintf(&b, "  Project    %s\n", displayProject(inst))
 	fmt.Fprintf(&b, "  Directory  %s\n", inst.Path)
 	if !inst.LastActivity.IsZero() {
 		fmt.Fprintf(&b, "  Last used  %s\n", inst.LastActivity.Local().Format("2006-01-02 15:04"))
@@ -186,11 +194,15 @@ func archivedCard(inst *session.Instance) string {
 	return b.String()
 }
 
-func projectOrOther(p string) string {
-	if p == "" {
-		return config.OtherProject
+// displayProject names the group a session is listed under.
+func displayProject(inst *session.Instance) string {
+	if inst.Project != "" {
+		return inst.Project
 	}
-	return p
+	if g := config.PathGroup(inst.ProjectPath()); g != "" {
+		return g
+	}
+	return config.OtherProject
 }
 
 // wrap breaks s into lines of at most width runes, indenting continuation lines.

@@ -101,3 +101,28 @@ func TestFindGitRepoRootAndCurrentBranch(t *testing.T) {
 	_, err = FindGitRepoRoot(t.TempDir())
 	require.Error(t, err, "not a repository")
 }
+
+func TestMainRepoRootResolvesWorktrees(t *testing.T) {
+	repo := t.TempDir()
+	run := func(dir string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		require.NoError(t, cmd.Run(), strings.Join(args, " "))
+	}
+	run(repo, "init", "-q", "-b", "trunk")
+	run(repo, "commit", "-q", "--allow-empty", "-m", "init")
+	wt := filepath.Join(t.TempDir(), "wt")
+	run(repo, "worktree", "add", "-q", "-b", "side", wt)
+	resolved, _ := filepath.EvalSymlinks(repo)
+
+	root, err := MainRepoRoot(filepath.Join(wt))
+	require.NoError(t, err)
+	require.Equal(t, resolved, root, "a worktree maps back to the main repository")
+
+	root, err = MainRepoRoot(repo)
+	require.NoError(t, err)
+	require.Equal(t, resolved, root)
+
+	_, err = MainRepoRoot(t.TempDir())
+	require.Error(t, err)
+}

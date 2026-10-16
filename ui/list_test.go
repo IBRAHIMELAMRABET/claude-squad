@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"claude-squad/config"
 	"claude-squad/session"
 	"fmt"
 	"strings"
@@ -103,9 +104,9 @@ func TestGroupedOrder(t *testing.T) {
 	l.items[0].Project, l.items[0].Status = "Zeta", session.Ready
 	l.items[1].Project, l.items[1].Status = "Alpha", session.Paused
 	l.items[2].Project, l.items[2].Status = "Alpha", session.Running
-	l.items[3].Project = "" // Other, always last
+	l.items[3].Project = "" // no project: grouped by its folder, after the named projects
 
-	require.Equal(t, []string{"#Alpha", "c", "b", "#Zeta", "a", "#Other", "d"}, rowLabels(l))
+	require.Equal(t, []string{"#Alpha", "c", "b", "#Zeta", "a", "#" + config.PathGroup(l.items[3].ProjectPath()), "d"}, rowLabels(l))
 }
 
 func TestLastActivityBreaksTies(t *testing.T) {
@@ -117,12 +118,11 @@ func TestLastActivityBreaksTies(t *testing.T) {
 	require.Equal(t, []string{"new", "old", "untouched"}, titlesOf(l.visible()))
 }
 
-func TestHeadersHiddenWhenEverythingIsOther(t *testing.T) {
+func TestSessionsWithoutProjectGroupByFolder(t *testing.T) {
 	l := newTestList("a", "b")
-	for _, r := range l.rows() {
-		require.False(t, r.header)
-	}
-	require.Equal(t, []string{"a", "b"}, rowLabels(l))
+	group := config.PathGroup(l.items[0].ProjectPath())
+	require.NotEmpty(t, group)
+	require.Equal(t, []string{"#" + group, "a", "b"}, rowLabels(l), "one folder header for both")
 }
 
 func TestFoldHidesGroupAndMovesSelection(t *testing.T) {
@@ -398,4 +398,31 @@ func TestHitTestAndFoldByName(t *testing.T) {
 	require.Equal(t, "a1", l.GetSelectedInstance().Title, "folding another group leaves the selection alone")
 	l.ToggleFoldProject("B")
 	require.Empty(t, l.FoldedProjects())
+}
+
+// Compact rows: one line for a past session, two for a running one, no title badge.
+func TestCompactRows(t *testing.T) {
+	l := newTestList("running", "past")
+	l.items[0].Project, l.items[1].Project = "P", "P"
+	l.items[1].Archived = true
+	l.items[1].Status = session.Stopped
+	l.SetCompact(true)
+	l.SetSize(32, 20)
+
+	out := l.String()
+	require.NotContains(t, out, "Instances")
+	require.NotContains(t, out, "1.", "no numbering")
+	require.Contains(t, out, "running")
+	require.Contains(t, out, "past")
+	for _, line := range strings.Split(out, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 32, "line too wide: %q", line)
+	}
+	running := l.renderer.RenderCompact(l.items[0], false)
+	past := l.renderer.RenderCompact(l.items[1], true)
+	require.Equal(t, 2, len(strings.Split(running, "\n")))
+	require.Equal(t, 1, len(strings.Split(past, "\n")))
+	require.Contains(t, past, stoppedIcon)
+
+	l.SetFilter("ru")
+	require.Contains(t, l.String(), "/ru", "filters still show, as a dim line")
 }

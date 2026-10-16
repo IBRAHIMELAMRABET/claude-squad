@@ -5,8 +5,26 @@ import (
 	"strings"
 )
 
-// OtherProject is the group for sessions whose repository matches no project.
+// OtherProject is the display name used when a session has no path to group by at all.
 const OtherProject = "Other"
+
+// PathGroupSegments is how many trailing path segments name a folder group.
+const PathGroupSegments = 3
+
+// PathGroup names a session's folder group from its path when no project claims it, like a
+// session browser does: the last PathGroupSegments segments joined with "/", for example
+// "me/work/repo" for /home/me/work/repo. Empty for an empty path.
+func PathGroup(path string) string {
+	path = cleanPath(path)
+	if path == "" || path == string(filepath.Separator) {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(filepath.ToSlash(path), "/"), "/")
+	if len(parts) > PathGroupSegments {
+		parts = parts[len(parts)-PathGroupSegments:]
+	}
+	return strings.Join(parts, "/")
+}
 
 // Project groups sessions by the work they belong to rather than by repository.
 type Project struct {
@@ -24,11 +42,12 @@ type Project struct {
 //
 // Explicit projects win, in config order. Otherwise, when projects_root is set and the
 // path lies beneath it, the first folder under the root names the project (so
-// <root>/Fawri/Code/Backend belongs to "Fawri"). Anything else is OtherProject.
+// <root>/Fawri/Code/Backend belongs to "Fawri"). Anything else returns "", and the UI
+// groups the session by its folder (see PathGroup).
 func (c *Config) ProjectFor(path string) string {
 	path = cleanPath(path)
 	if path == "" {
-		return OtherProject
+		return ""
 	}
 	for _, p := range c.Projects {
 		for _, pattern := range p.Paths {
@@ -45,7 +64,7 @@ func (c *Config) ProjectFor(path string) string {
 			}
 		}
 	}
-	return OtherProject
+	return ""
 }
 
 // ProjectColor returns the configured color for a project name, or "" when none is set.

@@ -3,6 +3,7 @@ package git
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -66,6 +67,17 @@ func findGitRepoRoot(path string) (string, error) {
 // FindGitRepoRoot returns the root of the repository containing path.
 func FindGitRepoRoot(path string) (string, error) {
 	return findGitRepoRoot(path)
+}
+
+// MainRepoRoot returns the root of the main repository containing path, resolving
+// worktrees back to the repository they were created from.
+func MainRepoRoot(path string) (string, error) {
+	cmd := exec.Command("git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("not inside a git repository: %s", path)
+	}
+	return filepath.Dir(strings.TrimSpace(string(out))), nil
 }
 
 // CurrentBranch returns the branch checked out at path ("HEAD" when detached).

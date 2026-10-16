@@ -92,6 +92,9 @@ type Instance struct {
 	Archived bool
 	// Summary is a short description shown for archived sessions (last prompt).
 	Summary string
+	// GroupPath, when set, is the path the session is grouped by instead of its own path
+	// (the main repository of a worktree, for past sessions).
+	GroupPath string
 	// Adopted is true for a session discovered in tmux that claude-squad did not create:
 	// it can be watched and attached to, but has no worktree and is never killed, paused,
 	// pushed or persisted.
@@ -357,6 +360,9 @@ func (i *Instance) RepoLabel() string {
 // ProjectPath is the path used to resolve the session's project: the repository root when
 // known, otherwise the session path.
 func (i *Instance) ProjectPath() string {
+	if i.GroupPath != "" {
+		return i.GroupPath
+	}
 	if i.gitWorktree != nil && i.gitWorktree.GetRepoPath() != "" {
 		return i.gitWorktree.GetRepoPath()
 	}

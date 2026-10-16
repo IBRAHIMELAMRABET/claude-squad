@@ -93,6 +93,9 @@ type Config struct {
 	// HistoryIgnore lists path fragments; past sessions whose directory contains one are
 	// not listed. Omitted means DefaultHistoryIgnore (temporary and scratch folders).
 	HistoryIgnore []string `json:"history_ignore,omitempty"`
+	// SidebarWidth is the width of the session list pane in the sidebar layout. Zero means
+	// DefaultSidebarWidth.
+	SidebarWidth int `json:"sidebar_width,omitempty"`
 	// SidebarDrawer, in the sidebar layout, zooms the session to the full window whenever
 	// it takes focus, so the list only shows when you move back to it (Alt+Left). Omitted
 	// means on.
@@ -140,6 +143,17 @@ func (c *Config) GetHistoryMaxAge() time.Duration {
 		return DefaultHistoryDays * 24 * time.Hour
 	}
 	return time.Duration(c.HistoryDays) * 24 * time.Hour
+}
+
+// DefaultSidebarWidth is the width of the session list pane.
+const DefaultSidebarWidth = 32
+
+// GetSidebarWidth returns the session list pane width.
+func (c *Config) GetSidebarWidth() int {
+	if c.SidebarWidth < 20 {
+		return DefaultSidebarWidth
+	}
+	return c.SidebarWidth
 }
 
 // DrawerSidebar reports whether the sidebar behaves as a drawer (session zoomed on focus).

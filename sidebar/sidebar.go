@@ -22,8 +22,8 @@ import (
 const (
 	// UISession is the outer tmux session holding the sidebar and the session pane.
 	UISession = tmux.TmuxPrefix + "ui"
-	// Width is the sidebar pane width in columns.
-	Width = 36
+	// DefaultWidth is the sidebar pane width in columns when none is configured.
+	DefaultWidth = 32
 	// EnvSidebar marks the process running inside the sidebar pane.
 	EnvSidebar = "CLAUDE_SQUAD_SIDEBAR"
 )
@@ -35,18 +35,23 @@ type Controller struct {
 	self string
 	// dir is where the viewer scripts are written.
 	dir string
+	// width is the sidebar pane width, restored when the pane is recreated.
+	width int
 }
 
 // New returns a controller for a sidebar running in pane self.
-func New(self string, exec cmd.Executor) (*Controller, error) {
+func New(self string, exec cmd.Executor, width int) (*Controller, error) {
 	if self == "" {
 		return nil, fmt.Errorf("the sidebar must run inside tmux (TMUX_PANE is empty)")
+	}
+	if width <= 0 {
+		width = DefaultWidth
 	}
 	dir, err := config.GetConfigDir()
 	if err != nil {
 		return nil, err
 	}
-	return &Controller{exec: exec, self: self, dir: filepath.Join(dir, "sidebar")}, nil
+	return &Controller{exec: exec, self: self, dir: filepath.Join(dir, "sidebar"), width: width}, nil
 }
 
 // InsideSidebar reports whether this process is the sidebar pane of the UI session.
@@ -93,7 +98,7 @@ func (c *Controller) RightPane() (string, error) {
 	if err := c.exec.Run(exec.Command("tmux", "split-window", "-h", "-d", "-t", c.self, "sh "+shellQuote(script))); err != nil {
 		return "", fmt.Errorf("could not create the session pane: %w", err)
 	}
-	_ = c.exec.Run(exec.Command("tmux", "resize-pane", "-t", c.self, "-x", strconv.Itoa(Width)))
+	_ = c.exec.Run(exec.Command("tmux", "resize-pane", "-t", c.self, "-x", strconv.Itoa(c.width)))
 	id, err := list()
 	if err == nil && id == "" {
 		err = fmt.Errorf("the session pane did not appear")

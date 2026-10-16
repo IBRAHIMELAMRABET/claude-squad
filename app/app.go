@@ -41,12 +41,13 @@ func Run(ctx context.Context, program string, autoYes bool) error {
 func RunWithOptions(ctx context.Context, program string, autoYes bool, opts Options) error {
 	h := newHome(ctx, program, autoYes)
 	if opts.Sidebar {
-		ctl, err := sidebar.New(os.Getenv("TMUX_PANE"), cmd.MakeExecutor())
+		ctl, err := sidebar.New(os.Getenv("TMUX_PANE"), cmd.MakeExecutor(), h.appConfig.GetSidebarWidth())
 		if err != nil {
 			return err
 		}
 		h.sidebar = ctl
 		h.menu.SetSidebar(true)
+		h.list.SetCompact(true)
 	}
 	p := tea.NewProgram(
 		h,

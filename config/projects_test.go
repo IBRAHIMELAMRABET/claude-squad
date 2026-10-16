@@ -28,7 +28,7 @@ func TestProjectFor(t *testing.T) {
 	}{
 		{"explicit directory", filepath.Join(home, "Fawri_Infra"), "Fawri"},
 		{"explicit directory, cwd inside it", filepath.Join(home, "Fawri_Infra", "ansible"), "Fawri"},
-		{"explicit directory does not match a sibling prefix", filepath.Join(home, "Fawri_Infra2"), OtherProject},
+		{"explicit directory does not match a sibling prefix", filepath.Join(home, "Fawri_Infra2"), ""},
 		{"double-star pattern", "/srv/fawri/api", "Fawri"},
 		{"double-star pattern matches the base itself", "/srv/fawri", "Fawri"},
 		{"glob pattern", "/mnt/c/Projects/Platform/SentinelApi", "Sentinel"},
@@ -37,9 +37,9 @@ func TestProjectFor(t *testing.T) {
 		{"explicit mapping wins over the folder rule", "/mnt/c/Projects/Fawri/Code/Backend", "Shadow"},
 		{"folder rule: first segment under the root", "/mnt/c/Projects/CMIBills/Code/Backend", "CMIBills"},
 		{"folder rule: repo directly under the root", "/mnt/c/Projects/Umnia", "Umnia"},
-		{"folder rule: the root itself is Other", "/mnt/c/Projects", OtherProject},
-		{"outside everything", "/home/someone/scratch", OtherProject},
-		{"empty path", "", OtherProject},
+		{"folder rule: the root itself has no project", "/mnt/c/Projects", ""},
+		{"outside everything", "/home/someone/scratch", ""},
+		{"empty path", "", ""},
 		{"unclean path", "/mnt/c/Projects//CMIBills/./Code/../Code", "CMIBills"},
 	}
 	for _, tc := range cases {
@@ -50,7 +50,7 @@ func TestProjectFor(t *testing.T) {
 }
 
 func TestProjectForWithoutConfig(t *testing.T) {
-	assert.Equal(t, OtherProject, (&Config{}).ProjectFor("/any/where"))
+	assert.Equal(t, "", (&Config{}).ProjectFor("/any/where"))
 }
 
 func TestProjectColor(t *testing.T) {
@@ -72,4 +72,12 @@ func TestProjectsRoundTripThroughConfigFile(t *testing.T) {
 	assert.Equal(t, cfg.Projects, loaded.Projects)
 	assert.Contains(t, string(data), `"projects_root": "/mnt/c/Projects"`)
 	assert.Contains(t, string(data), `"paths": [`)
+}
+
+func TestPathGroup(t *testing.T) {
+	assert.Equal(t, "me/work/repo", PathGroup("/home/me/work/repo"))
+	assert.Equal(t, "fleet-control/enclave-tauri/src", PathGroup("C:/Users/me/fleet-control/enclave-tauri/src/"), "trailing slash ignored, last three segments")
+	assert.Equal(t, "repo", PathGroup("/repo/"))
+	assert.Equal(t, "", PathGroup(""))
+	assert.Equal(t, "", PathGroup("/"))
 }
