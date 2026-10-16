@@ -9,6 +9,7 @@ import (
 	"claude-squad/session"
 	"claude-squad/session/git"
 	"claude-squad/session/tmux"
+	"claude-squad/sidebar"
 	"claude-squad/ui"
 	"claude-squad/ui/overlay"
 	"context"
@@ -24,10 +25,31 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// Run is the main entrypoint into the application.
+// Options tunes how the application runs.
+type Options struct {
+	// Sidebar runs the session list alone in a narrow tmux pane and shows the selected
+	// session, attached for real, in the pane beside it (see package sidebar).
+	Sidebar bool
+}
+
+// Run is the main entrypoint into the application: the classic dashboard layout.
 func Run(ctx context.Context, program string, autoYes bool) error {
+	return RunWithOptions(ctx, program, autoYes, Options{})
+}
+
+// RunWithOptions runs the application with the given options.
+func RunWithOptions(ctx context.Context, program string, autoYes bool, opts Options) error {
+	h := newHome(ctx, program, autoYes)
+	if opts.Sidebar {
+		ctl, err := sidebar.New(os.Getenv("TMUX_PANE"), cmd.MakeExecutor())
+		if err != nil {
+			return err
+		}
+		h.sidebar = ctl
+		h.menu.SetSidebar(true)
+	}
 	p := tea.NewProgram(
-		newHome(ctx, program, autoYes),
+		h,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(), // Mouse scroll
 	)
@@ -91,6 +113,15 @@ type home struct {
 	// lastWaitingTotal is the waiting count last written to the window title.
 	lastWaitingTotal int
 
+	// sidebar drives the session pane in the sidebar layout; nil in the classic layout.
+	sidebar *sidebar.Controller
+	// shown is the tmux session currently displayed in the session pane ("" = placeholder).
+	shown string
+	// followVersion invalidates pending follow timers when the selection moves again.
+	followVersion uint64
+	// width is the last known terminal width.
+	width int
+
 	// instanceStarting is true while a background instance start is in progress.
 	// Prevents double-submission and guards against interacting with a not-yet-started instance.
 	instanceStarting bool
@@ -115,6 +146,9 @@ type home struct {
 	textOverlay *overlay.TextOverlay
 	// confirmationOverlay displays confirmation modals
 	confirmationOverlay *overlay.ConfirmationOverlay
+	// confirmResult is the message produced by the last confirmed action, delivered to Update
+	// once the modal closes.
+	confirmResult tea.Msg
 }
 
 func newHome(ctx context.Context, program string, autoYes bool) *home {
@@ -202,30 +236,47 @@ func (m *home) saveUIPrefs() {
 // The components will try to render inside their bounds.
 func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 	// List takes 30% of width, preview takes 70%; a hidden list gives the preview everything.
+	// In the sidebar layout the list is the whole pane.
 	listWidth := int(float32(msg.Width) * 0.3)
 	if m.listHidden {
 		listWidth = 0
 	}
+	if m.sidebar != nil {
+		listWidth = msg.Width
+	}
 	tabsWidth := msg.Width - listWidth
 
-	// Menu takes 10% of height, list and window take 90%
+	// Menu takes 10% of height, list and window take 90%; the compact sidebar menu needs a
+	// fixed number of lines.
 	contentHeight := int(float32(msg.Height) * 0.9)
-	menuHeight := msg.Height - contentHeight - 1     // minus 1 for error box
+	menuHeight := msg.Height - contentHeight - 1 // minus 1 for error box
+	if m.sidebar != nil {
+		menuHeight = ui.SidebarMenuHeight
+		contentHeight = msg.Height - menuHeight - 1
+	}
 	m.errBox.SetSize(int(float32(msg.Width)*0.9), 1) // error box takes 1 row
 
 	m.tabbedWindow.SetSize(tabsWidth, contentHeight)
 	m.list.SetSize(listWidth, contentHeight)
 
+	m.width = msg.Width
+	overlayWidth := int(float32(msg.Width) * 0.6)
+	if m.sidebar != nil {
+		overlayWidth = msg.Width - 2 // the pane is narrow: use all of it
+	}
 	if m.textInputOverlay != nil {
-		m.textInputOverlay.SetSize(int(float32(msg.Width)*0.6), int(float32(msg.Height)*0.4))
+		m.textInputOverlay.SetSize(overlayWidth, int(float32(msg.Height)*0.4))
 	}
 	if m.textOverlay != nil {
 		m.textOverlay.SetWidth(int(float32(msg.Width) * 0.6))
 	}
 
-	previewWidth, previewHeight := m.tabbedWindow.GetPreviewSize()
-	if err := m.list.SetSessionPreviewSize(previewWidth, previewHeight); err != nil {
-		log.ErrorLog.Print(err)
+	if m.sidebar == nil {
+		// The session pane's own tmux client sizes the sessions in the sidebar layout.
+		previewWidth, previewHeight := m.tabbedWindow.GetPreviewSize()
+		if err := m.list.SetSessionPreviewSize(previewWidth, previewHeight); err != nil {
+			log.ErrorLog.Print(err)
+		}
 	}
 	m.menu.SetSize(msg.Width, menuHeight)
 }
@@ -233,15 +284,20 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 func (m *home) Init() tea.Cmd {
 	// Upon starting, we want to start the spinner. Whenever we get a spinner.TickMsg, we
 	// update the spinner, which sends a new spinner.TickMsg. I think this lasts forever lol.
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		m.spinner.Tick,
-		func() tea.Msg {
-			time.Sleep(100 * time.Millisecond)
-			return previewTickMsg{}
-		},
 		tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir),
 		m.scanAdoptCmd(),
-	)
+	}
+	if m.sidebar == nil {
+		cmds = append(cmds, func() tea.Msg {
+			time.Sleep(100 * time.Millisecond)
+			return previewTickMsg{}
+		})
+	} else {
+		cmds = append(cmds, m.instanceChanged())
+	}
+	return tea.Batch(cmds...)
 }
 
 // adoptScanInterval is how often tmux is scanned for agent sessions to adopt.
@@ -319,6 +375,11 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case keyupMsg:
 		m.menu.ClearKeydown()
 		return m, nil
+	case followMsg:
+		if msg.version != m.followVersion {
+			return m, nil // the selection moved again
+		}
+		return m, m.showSelected()
 	case adoptScanMsg:
 		livePanes := make(map[string]bool, len(msg.panes))
 		for _, p := range msg.panes {
@@ -470,6 +531,12 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *home) handleQuit() (tea.Model, tea.Cmd) {
 	if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
 		return m, m.handleError(err)
+	}
+	if m.sidebar != nil {
+		// Closing the layout ends this process too; the agent sessions keep running detached.
+		if err := m.sidebar.Quit(); err != nil {
+			log.WarningLog.Printf("could not close the sidebar layout: %v", err)
+		}
 	}
 	return m, tea.Quit
 }
@@ -717,7 +784,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if shouldClose {
 			m.state = stateDefault
 			m.confirmationOverlay = nil
-			return m, nil
+			result := m.confirmResult
+			m.confirmResult = nil
+			// Deliver the action's outcome (an error, or a change notice) and refresh the view.
+			return m, tea.Batch(func() tea.Msg { return result }, m.instanceChanged())
 		}
 		return m, nil
 	}
@@ -753,6 +823,12 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		return m, nil
 	}
 
+	if m.sidebar != nil {
+		if handled, cmd := m.handleSidebarKey(name); handled {
+			return m, cmd
+		}
+	}
+
 	switch name {
 	case keys.KeyHelp:
 		return m.showHelpScreen(helpTypeGeneral{}, nil)
@@ -773,7 +849,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.menu.SetState(ui.StateNewInstance)
 		m.promptAfterName = true
 
-		return m, nil
+		return m, m.instanceChanged()
 	case keys.KeyNew:
 		if limit := m.appConfig.GetMaxInstances(); m.list.NumInstances() >= limit {
 			return m, m.handleError(
@@ -789,7 +865,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.state = stateNew
 		m.menu.SetState(ui.StateNewInstance)
 
-		return m, nil
+		return m, m.instanceChanged()
 	case keys.KeyUp:
 		m.list.Up()
 		return m, m.instanceChanged()
@@ -894,7 +970,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			m.tabbedWindow.CleanupTerminalForInstance(selected.Title)
 			m.instanceChanged()
 		})
-		return m, nil
+		return m, m.instanceChanged()
 	case keys.KeyFold:
 		m.list.ToggleFold()
 		m.saveUIPrefs()
@@ -928,7 +1004,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if err := selected.Resume(); err != nil {
 			return m, m.handleError(err)
 		}
-		return m, tea.WindowSize()
+		return m, tea.Batch(tea.WindowSize(), m.instanceChanged())
 	case keys.KeyEnter:
 		if m.list.NumInstances() == 0 {
 			return m, nil
@@ -1044,11 +1120,132 @@ func (m *home) handleFilterState(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, m.instanceChanged()
 }
 
+// handleSidebarKey handles the keys that act on the session pane in the sidebar layout.
+// It reports whether the key was consumed.
+func (m *home) handleSidebarKey(name keys.KeyName) (bool, tea.Cmd) {
+	selected := m.list.GetSelectedInstance()
+	switch name {
+	case keys.KeyHelp:
+		return true, m.showPaneHelp()
+	case keys.KeyToggleList:
+		if err := m.sidebar.ToggleZoom(); err != nil {
+			return true, m.handleError(err)
+		}
+		return true, m.focusSession()
+	case keys.KeyEnter:
+		if selected == nil || selected.Paused() || selected.Status == session.Loading || !selected.Started() {
+			return true, nil
+		}
+		selected.MarkSeen()
+		return true, m.focusSession()
+	case keys.KeyTab, keys.KeyTerminalView:
+		if selected == nil || !selected.Started() || selected.Paused() || selected.WorkDir() == "" {
+			return true, nil
+		}
+		var err error
+		if name == keys.KeyTab {
+			err = m.sidebar.ShowDiff(selected.WorkDir(), selected.BaseCommitSHA(), selected.TmuxName())
+		} else {
+			err = m.sidebar.ShowShell(selected.WorkDir(), selected.TmuxName())
+		}
+		if err != nil {
+			return true, m.handleError(err)
+		}
+		m.shown = selected.TmuxName() // the viewer returns to the session when it exits
+		if err := m.sidebar.FocusRight(); err != nil {
+			return true, m.handleError(err)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// followDebounce is how long the selection must rest before the pane follows it.
+const followDebounce = 150 * time.Millisecond
+
+// followMsg fires when the selection has rested long enough to be shown in the pane.
+type followMsg struct {
+	version uint64
+}
+
+// followTarget returns the tmux session the pane should show for the current selection, or
+// "" for the placeholder.
+func (m *home) followTarget() string {
+	sel := m.list.GetSelectedInstance()
+	if sel == nil || !sel.Started() || sel.Paused() || sel.Status == session.Loading {
+		return ""
+	}
+	return sel.TmuxName()
+}
+
+// scheduleFollow shows the selected session in the pane after a short pause, so moving
+// through the list does not respawn the pane on every keystroke.
+func (m *home) scheduleFollow() tea.Cmd {
+	if m.followTarget() == m.shown {
+		return nil
+	}
+	m.followVersion++
+	version := m.followVersion
+	return func() tea.Msg {
+		time.Sleep(followDebounce)
+		return followMsg{version: version}
+	}
+}
+
+// showSelected puts the selected session, or the placeholder, in the pane.
+func (m *home) showSelected() tea.Cmd {
+	target := m.followTarget()
+	if target == m.shown {
+		return nil
+	}
+	var err error
+	if target == "" {
+		err = m.sidebar.ShowPlaceholder()
+	} else {
+		err = m.sidebar.ShowSession(target)
+	}
+	if err != nil {
+		return m.handleError(err)
+	}
+	m.shown = target
+	return nil
+}
+
+// focusSession shows the selected session right away and moves the cursor into its pane.
+func (m *home) focusSession() tea.Cmd {
+	if cmd := m.showSelected(); cmd != nil {
+		return cmd
+	}
+	if m.shown == "" {
+		return nil
+	}
+	if err := m.sidebar.FocusRight(); err != nil {
+		return m.handleError(err)
+	}
+	return nil
+}
+
+// showPaneHelp pages the help text in the session pane.
+func (m *home) showPaneHelp() tea.Cmd {
+	if err := m.sidebar.ShowHelp(sidebarHelp(), m.shown); err != nil {
+		return m.handleError(err)
+	}
+	if err := m.sidebar.FocusRight(); err != nil {
+		return m.handleError(err)
+	}
+	return nil
+}
+
 // instanceChanged updates the preview pane, menu, and diff pane based on the selected instance. It returns an error
 // Cmd if there was any error.
 func (m *home) instanceChanged() tea.Cmd {
 	// selected may be nil
 	selected := m.list.GetSelectedInstance()
+
+	if m.sidebar != nil {
+		m.menu.SetInstance(selected)
+		return m.scheduleFollow()
+	}
 
 	m.tabbedWindow.UpdateDiff(selected)
 	m.tabbedWindow.SetInstance(selected)
@@ -1261,15 +1458,19 @@ func (m *home) confirmAction(message string, action tea.Cmd) tea.Cmd {
 
 	// Create and show the confirmation overlay using ConfirmationOverlay
 	m.confirmationOverlay = overlay.NewConfirmationOverlay(message)
-	// Set a fixed width for consistent appearance
-	m.confirmationOverlay.SetWidth(50)
+	// Set a fixed width for consistent appearance, within the pane in the sidebar layout
+	width := 50
+	if m.sidebar != nil && m.width > 2 && m.width-2 < width {
+		width = m.width - 2
+	}
+	m.confirmationOverlay.SetWidth(width)
 
 	// Set callbacks for confirmation and cancellation
 	m.confirmationOverlay.OnConfirm = func() {
 		m.state = stateDefault
-		// Execute the action if it exists
+		// Execute the action if it exists; its result is delivered when the modal closes.
 		if action != nil {
-			_ = action()
+			m.confirmResult = action()
 		}
 	}
 
@@ -1283,7 +1484,9 @@ func (m *home) confirmAction(message string, action tea.Cmd) tea.Cmd {
 func (m *home) View() string {
 	previewWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(m.tabbedWindow.String())
 	listAndPreview := previewWithPadding
-	if !m.listHidden {
+	if m.sidebar != nil {
+		listAndPreview = lipgloss.NewStyle().PaddingTop(1).Render(m.list.String())
+	} else if !m.listHidden {
 		listWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(m.list.String())
 		listAndPreview = lipgloss.JoinHorizontal(lipgloss.Top, listWithPadding, previewWithPadding)
 	}

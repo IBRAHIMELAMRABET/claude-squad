@@ -139,8 +139,32 @@ var (
 	descStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
 )
 
-// showHelpScreen displays the help screen overlay if it hasn't been shown before
+// sidebarHelp is the help text paged in the session pane of the sidebar layout.
+func sidebarHelp() string {
+	return lipgloss.JoinVertical(lipgloss.Left,
+		helpTypeGeneral{}.toContent(),
+		"",
+		headerStyle.Render("Sidebar layout:"),
+		keyStyle.Render("↵/o")+descStyle.Render("       - Show the selected session here and move into it"),
+		keyStyle.Render("Alt-←/→")+descStyle.Render("   - Move between the list and the session"),
+		keyStyle.Render("tab")+descStyle.Render("       - Show the session's diff here (q returns to the session)"),
+		keyStyle.Render("t")+descStyle.Render("         - Open a shell in the session's directory (exit returns)"),
+		keyStyle.Render("z")+descStyle.Render("         - Zoom the session to the full window, and back"),
+		keyStyle.Render("q")+descStyle.Render("         - Close the layout; sessions keep running in tmux"),
+		"",
+		descStyle.Render("Press q to leave this help."),
+	) + "\n"
+}
+
+// showHelpScreen displays the help screen overlay if it hasn't been shown before. In the
+// sidebar layout the pane is too narrow for overlays, so one-time screens are skipped.
 func (m *home) showHelpScreen(helpType helpText, onDismiss func()) (tea.Model, tea.Cmd) {
+	if m.sidebar != nil {
+		if onDismiss != nil {
+			onDismiss()
+		}
+		return m, nil
+	}
 	// Get the flag for this help type
 	var alwaysShow bool
 	switch helpType.(type) {

@@ -10,11 +10,14 @@ import (
 	"claude-squad/session"
 	"claude-squad/session/git"
 	"claude-squad/session/tmux"
+	"claude-squad/sidebar"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -25,6 +28,8 @@ var (
 	programFlag string
 	autoYesFlag bool
 	daemonFlag  bool
+	classicFlag bool
+	sidebarFlag bool
 	binName     string
 	rootCmd     = &cobra.Command{
 		Use:   "claude-squad",
@@ -81,7 +86,19 @@ var (
 				log.ErrorLog.Printf("failed to stop daemon: %v", err)
 			}
 
-			return app.Run(ctx, program, autoYes)
+			if sidebarFlag {
+				return app.RunWithOptions(ctx, program, autoYes, app.Options{Sidebar: true})
+			}
+			if classicFlag || runtime.GOOS == "windows" {
+				return app.Run(ctx, program, autoYes)
+			}
+			// Sidebar layout: an outer tmux session with the list on the left and the selected
+			// session on the right. Launch replaces this process with the tmux client.
+			execPath, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("failed to locate the executable: %w", err)
+			}
+			return sidebar.Launch(sidebarCommand(execPath, os.Args[1:]))
 		},
 	}
 
@@ -182,6 +199,20 @@ var (
 	}
 )
 
+// sidebarCommand is the shell command the sidebar pane runs: this binary with the same
+// flags plus --sidebar.
+func sidebarCommand(execPath string, args []string) string {
+	parts := []string{shellQuote(execPath)}
+	for _, a := range args {
+		parts = append(parts, shellQuote(a))
+	}
+	return strings.Join(append(parts, "--sidebar"), " ")
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'''`) + "'"
+}
+
 func init() {
 	rootCmd.Flags().StringVarP(&programFlag, "program", "p", "",
 		"Program to run in new instances (e.g. 'aider --model ollama_chat/gemma3:1b')")
@@ -190,10 +221,15 @@ func init() {
 	rootCmd.Flags().BoolVar(&daemonFlag, "daemon", false, "Run a program that loads all sessions"+
 		" and runs autoyes mode on them.")
 
-	// Hide the daemonFlag as it's only for internal use
-	err := rootCmd.Flags().MarkHidden("daemon")
-	if err != nil {
-		panic(err)
+	rootCmd.Flags().BoolVar(&classicFlag, "classic", false,
+		"Use the classic single-window layout (list + preview tabs) instead of the tmux sidebar layout.")
+	rootCmd.Flags().BoolVar(&sidebarFlag, "sidebar", false, "Run as the sidebar pane of the layout (internal).")
+
+	// Hide the flags that are only for internal use
+	for _, name := range []string{"daemon", "sidebar"} {
+		if err := rootCmd.Flags().MarkHidden(name); err != nil {
+			panic(err)
+		}
 	}
 
 	rootCmd.AddCommand(debugCmd)

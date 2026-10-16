@@ -61,3 +61,21 @@ func TestCanStartWithoutRepo(t *testing.T) {
 	require.True(t, CanStartWithoutRepo(&config.Config{ProjectsRoot: "/p"}, false))
 	require.True(t, CanStartWithoutRepo(&config.Config{Projects: []config.Project{{Name: "x"}}}, false))
 }
+
+func TestReposUnderRoot(t *testing.T) {
+	root := t.TempDir()
+	deep := initTestRepo(t, filepath.Join(root, "Fawri", "Code"), "Backend")
+	top := initTestRepo(t, root, "Umnia")
+	initTestRepo(t, filepath.Join(root, "Fawri", "Code", "Backend"), "nested-ignored") // inside a repo
+	initTestRepo(t, filepath.Join(root, ".hidden"), "skipped")
+	initTestRepo(t, filepath.Join(root, "a", "b", "c"), "too-deep")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "Platform", "node_modules", "x"), 0755))
+
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	got := reposUnder(resolvedRoot, 3)
+	require.ElementsMatch(t, []string{deep, top}, got)
+
+	cfg := &config.Config{ProjectsRoot: resolvedRoot}
+	require.ElementsMatch(t, []string{deep, top}, knownRepos("", cfg, nil), "projects_root feeds the picker")
+}

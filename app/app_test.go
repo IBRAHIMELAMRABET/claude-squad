@@ -1,19 +1,24 @@
 package app
 
 import (
+	"claude-squad/cmd/cmd_test"
 	"claude-squad/config"
 	"claude-squad/log"
 	"claude-squad/session"
 	"claude-squad/session/tmux"
+	"claude-squad/sidebar"
 	"claude-squad/ui"
 	"claude-squad/ui/overlay"
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -119,6 +124,8 @@ func TestConfirmationModalKeyHandling(t *testing.T) {
 		appConfig:           config.DefaultConfig(),
 		list:                list,
 		menu:                ui.NewMenu(),
+		tabbedWindow:        ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
+		errBox:              ui.NewErrBox(),
 		confirmationOverlay: overlay.NewConfirmationOverlay("Kill session?"),
 	}
 
@@ -643,4 +650,113 @@ func TestNamingLeftRightPicksRepo(t *testing.T) {
 	require.Equal(t, "/mnt/c/Projects/Fawri/Code/Backend", inst.Path, "wraps")
 	press(tea.KeyMsg{Type: tea.KeyLeft})
 	require.Equal(t, "/mnt/c/Projects/CMIBills/Code/Api", inst.Path)
+}
+
+// sidebarHome builds a home in sidebar mode with a tmux executor that records commands.
+func sidebarHome(t *testing.T, ran *[]string) *home {
+	t.Setenv("HOME", t.TempDir())
+	ctl, err := sidebar.New("%0", cmd_test.MockCmdExec{
+		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return []byte("%0\t0\n%1\t37\n"), nil },
+		RunFunc:    func(c *exec.Cmd) error { *ran = append(*ran, strings.Join(c.Args, " ")); return nil },
+	})
+	require.NoError(t, err)
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	h := &home{
+		ctx:          context.Background(),
+		state:        stateDefault,
+		appConfig:    config.DefaultConfig(),
+		appState:     config.DefaultState(),
+		list:         ui.NewList(&spinner, false),
+		menu:         ui.NewMenu(),
+		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
+		errBox:       ui.NewErrBox(),
+		sidebar:      ctl,
+	}
+	h.menu.SetSidebar(true)
+	return h
+}
+
+func TestSidebarLayoutShowsOnlyTheList(t *testing.T) {
+	var ran []string
+	h := sidebarHome(t, &ran)
+	h.updateHandleWindowSizeEvent(tea.WindowSizeMsg{Width: 36, Height: 40})
+
+	view := h.View()
+	require.Contains(t, view, "Instances")
+	require.NotContains(t, view, "Preview")
+	require.NotContains(t, view, "Diff")
+	for _, line := range strings.Split(view, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 36, "line wider than the pane: %q", line)
+	}
+}
+
+func TestSidebarFollowsTheSelection(t *testing.T) {
+	var ran []string
+	h := sidebarHome(t, &ran)
+
+	require.Equal(t, "", h.followTarget(), "nothing selected: placeholder")
+	require.Nil(t, h.scheduleFollow(), "already showing the placeholder")
+
+	adopted := session.NewAdoptedInstance(tmux.Pane{Session: "scratch", ID: "%7", Command: "claude", Path: t.TempDir()})
+	h.list.AddInstance(adopted)()
+	require.Equal(t, "scratch", h.followTarget())
+	require.NotNil(t, h.scheduleFollow(), "the pane must change")
+
+	h.followVersion = 3
+	h.Update(followMsg{version: 2}) // stale timer
+	require.Equal(t, "", h.shown)
+	h.Update(followMsg{version: 3})
+	require.Equal(t, "scratch", h.shown)
+	require.Len(t, ran, 1)
+	require.Contains(t, ran[0], "tmux respawn-pane -k -t %1 sh ")
+
+	// Enter focuses the pane; the session is already shown so nothing is respawned.
+	h.keySent = true
+	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyEnter})
+	require.Equal(t, "tmux select-pane -t %1", ran[len(ran)-1])
+
+	// z zooms the pane instead of hiding the list.
+	h.keySent = true
+	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	require.Contains(t, ran, "tmux resize-pane -Z -t %1")
+	require.False(t, h.listHidden)
+}
+
+// A confirmed action's result reaches Update once the modal closes, instead of being lost.
+func TestConfirmedActionResultIsDelivered(t *testing.T) {
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	h := &home{
+		ctx:          context.Background(),
+		state:        stateDefault,
+		appConfig:    config.DefaultConfig(),
+		list:         ui.NewList(&spinner, false),
+		menu:         ui.NewMenu(),
+		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
+		errBox:       ui.NewErrBox(),
+	}
+	h.confirmAction("[!] Kill session 'x'?", func() tea.Msg { return fmt.Errorf("branch is checked out") })
+	require.Equal(t, stateConfirm, h.state)
+
+	h.keySent = true
+	_, cmd := h.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	require.Equal(t, stateDefault, h.state)
+	require.NotNil(t, cmd)
+	// Collect the messages the command produces, whether or not Batch collapsed it.
+	var msgs []tea.Msg
+	if batch, ok := cmd().(tea.BatchMsg); ok {
+		for _, c := range batch {
+			if c != nil {
+				msgs = append(msgs, c())
+			}
+		}
+	} else {
+		msgs = append(msgs, cmd())
+	}
+	var sawErr bool
+	for _, m := range msgs {
+		if err, isErr := m.(error); isErr && err.Error() == "branch is checked out" {
+			sawErr = true
+		}
+	}
+	require.True(t, sawErr, "the action's error is delivered to Update")
 }

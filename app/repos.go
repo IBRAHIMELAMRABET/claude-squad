@@ -4,6 +4,7 @@ import (
 	"claude-squad/config"
 	"claude-squad/session"
 	"claude-squad/session/git"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -35,9 +36,44 @@ func knownRepos(cwd string, cfg *config.Config, instances []*session.Instance) [
 			}
 		}
 	}
+	if root, err := config.ExpandHome(cfg.ProjectsRoot); err == nil && root != "" {
+		for _, repo := range reposUnder(root, 3) {
+			add(repo)
+		}
+	}
 	for _, inst := range instances {
 		add(inst.ProjectPath())
 	}
+	return out
+}
+
+// reposUnder lists git repositories (directories holding a .git entry) up to maxDepth levels
+// below root, in sorted order. Hidden directories and node_modules are skipped, and the walk
+// does not descend into a repository.
+func reposUnder(root string, maxDepth int) []string {
+	var out []string
+	var walk func(dir string, depth int)
+	walk = func(dir string, depth int) {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			out = append(out, dir)
+			return
+		}
+		if depth == maxDepth {
+			return
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if !e.IsDir() || strings.HasPrefix(name, ".") || name == "node_modules" {
+				continue
+			}
+			walk(filepath.Join(dir, name), depth+1)
+		}
+	}
+	walk(root, 0)
 	return out
 }
 

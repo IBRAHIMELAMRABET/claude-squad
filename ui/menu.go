@@ -52,6 +52,9 @@ type Menu struct {
 
 	// keyDown is the key which is pressed. The default is -1.
 	keyDown keys.KeyName
+
+	// sidebar switches to the sidebar layout's labels and a compact, wrapped rendering.
+	sidebar bool
 }
 
 var defaultMenuOptions = []keys.KeyName{keys.KeyNew, keys.KeyPrompt, keys.KeyHelp, keys.KeyQuit}
@@ -74,6 +77,13 @@ func (m *Menu) Keydown(name keys.KeyName) {
 
 func (m *Menu) ClearKeydown() {
 	m.keyDown = -1
+}
+
+// SetSidebar switches the menu to the sidebar layout: different labels for the keys that act
+// on the session pane, and a compact rendering that wraps to the pane width.
+func (m *Menu) SetSidebar(on bool) {
+	m.sidebar = on
+	m.updateOptions()
 }
 
 // SetState updates the menu state and options accordingly
@@ -131,6 +141,11 @@ func (m *Menu) addInstanceOptions() {
 		return
 	}
 
+	if m.sidebar {
+		m.options = m.sidebarOptions()
+		return
+	}
+
 	// Adopted sessions can only be watched and opened.
 	if m.instance.Adopted {
 		m.options = []keys.KeyName{keys.KeyNew, keys.KeyEnter, keys.KeyTab, keys.KeyNextWaiting,
@@ -167,6 +182,66 @@ func (m *Menu) addInstanceOptions() {
 	m.options = options
 }
 
+// sidebarOptions are the keys shown under the session list in the sidebar layout.
+func (m *Menu) sidebarOptions() []keys.KeyName {
+	options := []keys.KeyName{keys.KeyNew, keys.KeyPrompt}
+	if !m.instance.Adopted {
+		options = append(options, keys.KeyKill)
+	}
+	options = append(options, keys.KeyFocus, keys.KeyDiffView, keys.KeyTerminalView)
+	if !m.instance.Adopted && !m.instance.InPlace {
+		if m.instance.Status == session.Paused {
+			options = append(options, keys.KeyResume)
+		} else {
+			options = append(options, keys.KeyCheckout)
+		}
+		options = append(options, keys.KeySubmit)
+	}
+	return append(options, keys.KeyNextWaiting, keys.KeyActiveOnly, keys.KeySearch,
+		keys.KeyZoom, keys.KeyHelp, keys.KeyQuit)
+}
+
+// SidebarMenuHeight is the number of lines reserved for the compact menu.
+const SidebarMenuHeight = 6
+
+// compactString lays the options out left-aligned on as many lines as needed to fit the
+// width, for the narrow sidebar pane.
+func (m *Menu) compactString() string {
+	var lines []string
+	// While naming a session the preview pane is not there to show where it will run.
+	if m.state == StateNewInstance && m.instance != nil {
+		mode := "worktree"
+		if m.instance.InPlace {
+			mode = "in-place"
+		}
+		lines = append(lines, descStyle.Render("in ")+keyStyle.Render(m.instance.RepoLabel())+descStyle.Render(" · "+mode))
+	}
+	line := ""
+	for _, k := range m.options {
+		binding := keys.GlobalkeyBindings[k]
+		item := keyStyle.Render(binding.Help().Key) + " " + descStyle.Render(binding.Help().Desc)
+		if m.keyDown == k {
+			item = keyStyle.Underline(true).Render(binding.Help().Key) + " " + descStyle.Underline(true).Render(binding.Help().Desc)
+		}
+		itemWidth := lipgloss.Width(item)
+		if line != "" && lipgloss.Width(line)+2+itemWidth > m.width-1 {
+			lines = append(lines, line)
+			line = ""
+		}
+		if line != "" {
+			line += "  "
+		}
+		line += item
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	if m.height > 0 && len(lines) > m.height {
+		lines = lines[:m.height]
+	}
+	return lipgloss.NewStyle().PaddingLeft(1).Render(strings.Join(lines, "\n"))
+}
+
 // SetSize sets the width of the window. The menu will be centered horizontally within this width.
 func (m *Menu) SetSize(width, height int) {
 	m.width = width
@@ -174,6 +249,10 @@ func (m *Menu) SetSize(width, height int) {
 }
 
 func (m *Menu) String() string {
+	if m.sidebar {
+		return m.compactString()
+	}
+
 	var s strings.Builder
 
 	// Define group boundaries

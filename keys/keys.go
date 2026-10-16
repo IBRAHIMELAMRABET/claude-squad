@@ -45,6 +45,13 @@ const (
 
 	KeyToggleMode // While naming a new session: switch between worktree and in-place.
 	KeyPickRepo   // While naming a new session: cycle through the known repositories.
+
+	// Sidebar layout: the right pane shows the real session, so the same keys mean
+	// something slightly different and get their own labels.
+	KeyFocus        // enter: move into the session pane.
+	KeyDiffView     // tab: show the diff in the session pane.
+	KeyTerminalView // t: open a shell in the session pane.
+	KeyZoom         // z: zoom the session pane.
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -60,6 +67,7 @@ var GlobalKeyStringsMap = map[string]KeyName{
 	"/":          KeySearch,
 	"z":          KeyToggleList,
 	"w":          KeyNextWaiting,
+	"t":          KeyTerminalView,
 	"N":          KeyPrompt,
 	"enter":      KeyEnter,
 	"o":          KeyEnter,
@@ -168,6 +176,22 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyPickRepo: key.NewBinding(
 		key.WithKeys("left", "right"),
 		key.WithHelp("←/→", "repository"),
+	),
+	KeyFocus: key.NewBinding(
+		key.WithKeys("enter", "o"),
+		key.WithHelp("↵", "focus"),
+	),
+	KeyDiffView: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "diff"),
+	),
+	KeyTerminalView: key.NewBinding(
+		key.WithKeys("t"),
+		key.WithHelp("t", "shell"),
+	),
+	KeyZoom: key.NewBinding(
+		key.WithKeys("z"),
+		key.WithHelp("z", "zoom"),
 	),
 
 	// -- Special keybindings --
