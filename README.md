@@ -92,7 +92,13 @@ mouse, scrollback and cursor, while the list stays visible.
 - Moving in the list shows that session on the right; `↵` moves the cursor into it and, by
   default, zooms it to the full window so Claude looks exactly as it does on its own
   (`sidebar_drawer`). With sessions present, `cs` opens straight into the selected one.
-- `Alt-←` brings the list back (and unzooms); `Alt-→` returns to the session.
+- `Alt-←` brings the list back (and unzooms); `Alt-→` from the list returns to the session as
+  it was, zoomed. Inside the session `Alt-→` reaches Claude unchanged.
+- The cursor also stops on group headers: `space`, `↵` or `←`/`→` fold and unfold the group,
+  and a click on a header does the same. Moving over a header leaves the session pane as is.
+- When the terminal renders 24-bit colour (Windows Terminal, VS Code, iTerm2, WezTerm, or
+  `COLORTERM=truecolor`), `cs` tells tmux and the sessions so, so Claude Code's theme looks the
+  same as outside tmux. Sessions started before that keep 256 colours until restarted.
 - `tab` pages the session's diff on the right, `t` opens a shell in its directory; leaving
   either returns to the session. `?` pages the help there.
 - `z` zooms the session to the full window and back. `q` closes the layout; sessions keep
@@ -142,7 +148,7 @@ The menu at the bottom of the screen shows available commands:
 - `?` - Show help menu
 
 ##### List (fork)
-- `space` - Fold/unfold the selected project group
+- `space` / `←` `→` - Fold/unfold the group under the cursor (the cursor can sit on headers)
 - `a` - Show active sessions only (hide paused)
 - `/` - Filter sessions by text; `enter` keeps the filter, `esc` clears it
 - `w` - Jump to the next session waiting for you
@@ -190,13 +196,14 @@ All of these are optional; without them the fork behaves like upstream plus grou
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `projects_root` | unset | Directory whose first-level folders name projects: a repository at `<root>/<Project>/...` belongs to `<Project>`. Sessions matching no project are grouped by their folder, shown as its last three path segments. |
+| `projects_root` | unset | Directory whose first-level folders name projects: a repository at `<root>/<Project>/...` belongs to `<Project>`. Sessions matching no project are grouped by their folder, named after it (`~` for a home folder; a parent folder is added only when two names clash). |
 | `projects` | `[]` | Explicit projects, checked before the folder rule. Each has a `name`, an optional `color` (hex) for its header, and `paths`: directories (matching everything beneath them) or glob patterns (`dir/**` matches everything under `dir`). |
 | `worktree_dir` | `~/.claude-squad/worktrees` | Where worktrees are created. `~` is expanded. |
 | `worktree_next_to_repo` | `false` | Put each worktree under `.claude-squad-worktrees/<repo>` beside its repository, so repo and worktree share a filesystem (useful for `/mnt/c` repositories under WSL). |
 | `default_mode` | `"worktree"` | `"inplace"` makes new sessions run directly in the repository on its current branch. `tab` while naming a session switches per session. |
 | `max_instances` | `10` | Maximum number of sessions. |
 | `disable_hooks` | `false` | Do not pass the generated hooks settings file to `claude`; status then comes from the screen only. |
+| `claude_args` | `[]` | Extra arguments for claude sessions started by `cs`, for example `["--plugin-dir", "~/mods/my-plugin"]` to load plugins for those sessions only, without touching the shared `~/.claude`. |
 | `claude_settings` | unset | JSON object merged into that settings file, for machine-specific Claude settings that must not live in a shared `~/.claude/settings.json` (for example plugin marketplaces under WSL-only paths). The `hooks` key is reserved. |
 | `sidebar_width` | `32` | Width of the session list pane, in columns. |
 | `sidebar_drawer` | `true` | In the sidebar layout, zoom the session to the full window when it takes focus; `Alt-←` brings the list back. `false` keeps both panes visible. |

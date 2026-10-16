@@ -241,3 +241,11 @@ func TestFromInstanceDataKeepsInPlaceWithoutWorktree(t *testing.T) {
 	require.Equal(t, "", inst.GetWorktreePath())
 	require.Nil(t, inst.ComputeDiff())
 }
+
+func TestExtraArgsQuotesAndExpands(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	got := extraArgs([]string{"--plugin-dir", "~/mods/guard", "--append-system-prompt", "be brief; it's fine"})
+	require.Equal(t, " --plugin-dir "+home+`/mods/guard --append-system-prompt 'be brief; it'\''s fine'`, got)
+	require.Equal(t, "", extraArgs(nil))
+}

@@ -78,6 +78,10 @@ type Config struct {
 	// DefaultMode is how new sessions run: ModeWorktree (isolated worktree and branch, the
 	// default) or ModeInPlace (directly in the repository on its current branch).
 	DefaultMode string `json:"default_mode,omitempty"`
+	// ClaudeArgs are extra command-line arguments added to claude sessions started by cs,
+	// for example `--plugin-dir <dir>` to load plugins for those sessions only. A leading
+	// "~" is expanded.
+	ClaudeArgs []string `json:"claude_args,omitempty"`
 	// ClaudeSettings is merged into the settings file passed to claude sessions started by
 	// cs (`--settings`). Use it for machine-specific Claude settings that must not live in
 	// the shared ~/.claude/settings.json, such as marketplaces under WSL-only paths.

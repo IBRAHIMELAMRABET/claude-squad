@@ -280,21 +280,53 @@ func (i *Instance) RepoName() (string, error) {
 // launchProgram is the command actually started in tmux: the configured program plus, for
 // claude, the --settings flag that routes its hook events to `cs hook`.
 func (i *Instance) launchProgram() string {
-	cfg := config.LoadConfig()
-	if cfg.DisableHooks || !hooks.IsClaude(i.Program) {
+	if !hooks.IsClaude(i.Program) {
 		return i.Program
+	}
+	cfg := config.LoadConfig()
+	program := i.resumeArgs(i.Program) + extraArgs(cfg.ClaudeArgs)
+	if cfg.DisableHooks {
+		return program
 	}
 	execPath, err := os.Executable()
 	if err != nil {
 		log.WarningLog.Printf("hooks disabled for %q: cannot locate cs executable: %v", i.Title, err)
-		return i.Program
+		return program
 	}
 	settings, err := hooks.EnsureSettings(execPath, cfg.ClaudeSettings)
 	if err != nil {
 		log.WarningLog.Printf("hooks disabled for %q: %v", i.Title, err)
-		return i.resumeArgs(i.Program)
+		return program
 	}
-	return i.resumeArgs(i.Program) + hooks.LaunchArgs(i.Program, settings)
+	return program + hooks.LaunchArgs(i.Program, settings)
+}
+
+// extraArgs renders claude_args for a shell command line: each argument quoted, "~"
+// expanded.
+func extraArgs(args []string) string {
+	var b strings.Builder
+	for _, a := range args {
+		if expanded, err := config.ExpandHome(a); err == nil {
+			a = expanded
+		}
+		b.WriteString(" " + shellQuote(a))
+	}
+	return b.String()
+}
+
+// shellQuote single-quotes s for a POSIX shell when it holds anything but safe characters.
+func shellQuote(s string) string {
+	safe := s != ""
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./=:@%+,", r)) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // resumeArgs appends the --resume flag for a resumed claude session.
