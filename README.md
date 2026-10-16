@@ -3,8 +3,9 @@
 [Claude Squad](https://smtg-ai.github.io/claude-squad/) is a terminal app that manages multiple [Claude Code](https://github.com/anthropics/claude-code), [Codex](https://github.com/openai/codex), [Gemini](https://github.com/google-gemini/gemini-cli) (and other local agents including [Aider](https://github.com/Aider-AI/aider)) in separate workspaces, allowing you to work on multiple tasks simultaneously.
 
 > **This is a modified fork** of [smtg-ai/claude-squad](https://github.com/smtg-ai/claude-squad).
-> It adds a project-grouped session list, "waiting for you" detection, filters, a collapsible
-> list pane, adoption of Claude sessions started outside `cs`, and in-place sessions.
+> It adds a sidebar layout with the real Claude Code session beside a project-grouped list,
+> "waiting for you" detection, filters, adoption of Claude sessions started outside `cs`, and
+> in-place sessions.
 > The changes are listed in [Modifications in this fork](#modifications-in-this-fork), together
 > with how to configure them and how to pull upstream updates. The license is unchanged
 > (AGPL-3.0, see [LICENSE.md](LICENSE.md)).
@@ -72,6 +73,30 @@ NOTE: The default program is `claude` and we recommend using the latest version.
 `cs` normally runs from inside a git repository. With `projects` or `projects_root` configured
 (see below) it also starts anywhere else, and new sessions are created in a repository you pick.
 
+#### Layout
+
+By default `cs` opens a tmux layout: the session list in a narrow pane on the left and the
+selected session, attached for real, on the right. You type into Claude Code directly, with
+mouse, scrollback and cursor, while the list stays visible.
+
+```
+┌ sidebar ─────────────┬ selected session ──────────────────────┐
+│ ▾ Fawri   3 · 1 waiting │ ╭─ Claude Code ─────────────────────╮ │
+│  ! fix-auth          │ │ ...                                │ │
+│  ⠋ elk-api           │ ╰────────────────────────────────────╯ │
+│ ▸ CMIBills 1         │ ❯ _                                    │
+│ n new  ↵ focus  z zoom │                                        │
+└──────────────────────┴────────────────────────────────────────┘
+```
+
+- Moving in the list shows that session on the right; `↵` moves the cursor into it.
+- `Alt-←` / `Alt-→` move between the list and the session.
+- `tab` pages the session's diff on the right, `t` opens a shell in its directory; leaving
+  either returns to the session. `?` pages the help there.
+- `z` zooms the session to the full window and back. `q` closes the layout; sessions keep
+  running in tmux and reappear next time.
+- `cs --classic` runs upstream's single-window layout (list, preview, diff and terminal tabs).
+
 <br />
 
 <b>Using Claude Squad with other AI assistants:</b>
@@ -107,7 +132,8 @@ The menu at the bottom of the screen shows available commands:
 - `a` - Show active sessions only (hide paused)
 - `/` - Filter sessions by text; `enter` keeps the filter, `esc` clears it
 - `w` - Jump to the next session waiting for you
-- `z` - Hide/show the session list (full-width preview)
+- `z` - Zoom the session pane (sidebar layout) or hide the list (classic layout)
+- `t` - Open a shell in the session's directory (sidebar layout)
 
 ##### Navigation
 - `tab` - Switch between preview tab and diff tab
@@ -213,6 +239,9 @@ raise `vmIdleTimeout` in `%USERPROFILE%\.wslconfig`. Systemd-enabled distributio
 
 Changes made in October 2026 on top of upstream v1.0.20 (AGPL-3.0 §5 notice):
 
+- A sidebar layout, now the default: the list in a tmux pane beside the real session, with
+  Alt+arrows to move between them, `z` zoom, and diff/shell/help paged in the session pane.
+  Upstream's single-window layout remains as `cs --classic`.
 - Sessions are grouped by project (`projects` / `projects_root`), ordered by status then last
   activity, with foldable headers, repository name and a last-activity age on every row.
 - A `Waiting` status (permission prompt, question, unread finished turn) detected from Claude
