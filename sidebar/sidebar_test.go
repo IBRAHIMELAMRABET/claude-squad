@@ -114,3 +114,45 @@ func TestShowTextWritesCard(t *testing.T) {
 	require.Equal(t, "hello\nworld", string(data))
 	require.Contains(t, TextScript("/x/card.txt"), "cat '/x/card.txt'")
 }
+
+func TestKeyBindings(t *testing.T) {
+	b := KeyBindings(true)
+	require.Len(t, b, 2)
+	require.Equal(t, []string{"bind-key", "-n", "M-Left", "if-shell", "-F", "#{==:#{session_name},claudesquad_ui}",
+		"select-pane -t =claudesquad_ui:0.0", "send-keys M-Left"}, b[0])
+	require.Equal(t, "M-Right", b[1][2])
+	require.Contains(t, b[1][5], "#{==:#{pane_index},0}", "only from the list")
+	require.Equal(t, "select-pane -t =claudesquad_ui:0.1 ; resize-pane -Z -t =claudesquad_ui:0.1", b[1][6], "back to the session, zoomed")
+	require.Equal(t, "send-keys M-Right", b[1][7], "inside the session the key reaches the program")
+
+	require.Equal(t, "select-pane -t =claudesquad_ui:0.1", KeyBindings(false)[1][6], "no zoom without the drawer")
+}
+
+func TestTrueColorTerminal(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	require.True(t, TrueColorTerminal(env(map[string]string{"COLORTERM": "truecolor"})))
+	require.True(t, TrueColorTerminal(env(map[string]string{"COLORTERM": "24bit"})))
+	require.True(t, TrueColorTerminal(env(map[string]string{"WT_SESSION": "abc"})), "Windows Terminal")
+	require.True(t, TrueColorTerminal(env(map[string]string{"TERM_PROGRAM": "vscode"})))
+	require.False(t, TrueColorTerminal(env(map[string]string{"TERM": "xterm-256color"})))
+}
+
+func TestFixWidth(t *testing.T) {
+	var ran []string
+	zoomed := "0"
+	mock := cmd_test.MockCmdExec{
+		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return []byte(zoomed + "\n"), nil },
+		RunFunc:    func(c *exec.Cmd) error { ran = append(ran, strings.Join(c.Args, " ")); return nil },
+	}
+	c := newTestController(t, mock)
+
+	require.NoError(t, c.FixWidth(36))
+	require.Empty(t, ran, "already the right width")
+	require.NoError(t, c.FixWidth(44))
+	require.Equal(t, []string{"tmux resize-pane -t %0 -x 36"}, ran)
+
+	zoomed = "1"
+	ran = nil
+	require.NoError(t, c.FixWidth(44))
+	require.Empty(t, ran, "never while the session is zoomed")
+}

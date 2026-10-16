@@ -217,6 +217,49 @@ func (c *Controller) Quit() error {
 	return c.exec.Run(exec.Command("tmux", "kill-session", "-t", "="+UISession))
 }
 
+// KeyBindings returns the tmux commands binding Alt+Left and Alt+Right in the UI session.
+// Alt+Left shows the list (unzooming the session); Alt+Right, from the list, goes back to
+// the session, zoomed again when drawer is on. Anywhere else the keys reach the program
+// unchanged, so Alt+Right keeps working inside Claude Code.
+func KeyBindings(drawer bool) [][]string {
+	inUI := "#{==:#{session_name}," + UISession + "}"
+	onList := "#{&&:" + inUI + ",#{==:#{pane_index},0}}"
+	back := "select-pane -t =" + UISession + ":0.1"
+	if drawer {
+		back += " ; resize-pane -Z -t =" + UISession + ":0.1"
+	}
+	return [][]string{
+		{"bind-key", "-n", "M-Left", "if-shell", "-F", inUI, "select-pane -t =" + UISession + ":0.0", "send-keys M-Left"},
+		{"bind-key", "-n", "M-Right", "if-shell", "-F", onList, back, "send-keys M-Right"},
+	}
+}
+
+// TrueColorTerminal reports whether the terminal described by the environment renders
+// 24-bit colour: COLORTERM says so, or it is Windows Terminal, VS Code, iTerm2 or WezTerm.
+func TrueColorTerminal(getenv func(string) string) bool {
+	switch strings.ToLower(getenv("COLORTERM")) {
+	case "truecolor", "24bit":
+		return true
+	}
+	if getenv("WT_SESSION") != "" {
+		return true
+	}
+	switch getenv("TERM_PROGRAM") {
+	case "vscode", "iTerm.app", "WezTerm":
+		return true
+	}
+	return false
+}
+
+// FixWidth restores the sidebar width when a terminal resize scaled the pane, unless the
+// session is zoomed (resizing would unzoom it). current is the pane's width now.
+func (c *Controller) FixWidth(current int) error {
+	if current == c.width || c.Zoomed() {
+		return nil
+	}
+	return c.exec.Run(exec.Command("tmux", "resize-pane", "-t", c.self, "-x", strconv.Itoa(c.width)))
+}
+
 // AttachScript shows a tmux session inside the pane. TMUX is cleared so tmux accepts nesting.
 func AttachScript(sessionName string) string {
 	return "TMUX= exec tmux attach-session -t " + shellQuote("="+sessionName) + "\n"
