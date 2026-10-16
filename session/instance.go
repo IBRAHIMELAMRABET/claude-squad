@@ -286,6 +286,23 @@ func (i *Instance) HookCWD() string {
 	return i.Path
 }
 
+// TmuxName returns the tmux session name backing this instance, or "" before it starts.
+func (i *Instance) TmuxName() string {
+	if i.tmuxSession == nil {
+		return ""
+	}
+	return i.tmuxSession.Name()
+}
+
+// BaseCommitSHA returns the commit the session's diff is computed against, or "" when the
+// session has no worktree.
+func (i *Instance) BaseCommitSHA() string {
+	if i.gitWorktree == nil {
+		return ""
+	}
+	return i.gitWorktree.GetBaseCommitSHA()
+}
+
 // RepoLabel returns a short repository name for display. Unlike RepoName it never fails:
 // before the worktree exists it falls back to the last element of the session path.
 func (i *Instance) RepoLabel() string {

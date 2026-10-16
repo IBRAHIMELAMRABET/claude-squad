@@ -35,6 +35,8 @@ type TmuxSession struct {
 	ptyFactory PtyFactory
 	// cmdExec is used to execute commands in the tmux session.
 	cmdExec cmd.Executor
+	// foreign is true for sessions claude-squad did not create; their options are left alone.
+	foreign bool
 
 	// Initialized by Start or Restore
 	//
@@ -133,17 +135,7 @@ func (t *TmuxSession) Start(workDir string) error {
 	}
 	ptmx.Close()
 
-	// Set history limit to enable scrollback (default is 2000, we'll use 10000 for more history)
-	historyCmd := exec.Command("tmux", "set-option", "-t", t.sanitizedName, "history-limit", "10000")
-	if err := t.cmdExec.Run(historyCmd); err != nil {
-		log.InfoLog.Printf("Warning: failed to set history-limit for session %s: %v", t.sanitizedName, err)
-	}
-
-	// Enable mouse scrolling for the session
-	mouseCmd := exec.Command("tmux", "set-option", "-t", t.sanitizedName, "mouse", "on")
-	if err := t.cmdExec.Run(mouseCmd); err != nil {
-		log.InfoLog.Printf("Warning: failed to enable mouse scrolling for session %s: %v", t.sanitizedName, err)
-	}
+	t.applyOptions()
 
 	err = t.Restore()
 	if err != nil {
@@ -184,6 +176,31 @@ func (t *TmuxSession) CheckAndHandleTrustPrompt() bool {
 		}
 	}
 	return false
+}
+
+// Name returns the tmux session name.
+func (t *TmuxSession) Name() string {
+	return t.sanitizedName
+}
+
+// applyOptions configures a session claude-squad created: scrollback, mouse, and no status
+// bar, so the session shows only the agent when displayed inside another tmux pane.
+func (t *TmuxSession) applyOptions() {
+	if t.foreign {
+		return
+	}
+	for _, opt := range [][]string{
+		// Set history limit to enable scrollback (default is 2000, we'll use 10000 for more history)
+		{"history-limit", "10000"},
+		// Enable mouse scrolling for the session
+		{"mouse", "on"},
+		{"status", "off"},
+	} {
+		cmd := exec.Command("tmux", "set-option", "-t", t.sanitizedName, opt[0], opt[1])
+		if err := t.cmdExec.Run(cmd); err != nil {
+			log.InfoLog.Printf("Warning: failed to set %s for session %s: %v", opt[0], t.sanitizedName, err)
+		}
+	}
 }
 
 // Restore attaches to an existing session and restores the window size

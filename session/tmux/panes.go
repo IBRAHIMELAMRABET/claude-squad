@@ -59,6 +59,7 @@ func NewTmuxSessionRaw(sessionName string, program string) *TmuxSession {
 	t := newTmuxSession("", program, MakePtyFactory(), cmd.MakeExecutor())
 	t.sanitizedName = sessionName
 	t.monitor = newStatusMonitor()
+	t.foreign = true
 	return t
 }
 
