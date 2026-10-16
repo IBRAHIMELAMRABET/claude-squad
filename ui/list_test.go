@@ -2,10 +2,13 @@ package ui
 
 import (
 	"claude-squad/session"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 )
 
@@ -320,4 +323,40 @@ func TestAdoptedInstanceDoesNotUnfoldAndRendersMarker(t *testing.T) {
 	l.SetFolded(nil)
 	l.SetSize(60, 30)
 	require.Contains(t, l.String(), adoptedIcon)
+}
+
+// A list taller than the pane scrolls so the selection stays visible.
+func TestListScrollsToSelection(t *testing.T) {
+	titles := make([]string, 30)
+	for i := range titles {
+		titles[i] = fmt.Sprintf("row-%02d", i)
+	}
+	l := newTestList(titles...)
+	for _, inst := range l.items {
+		inst.Project = "P"
+	}
+	l.SetSize(60, 24)
+
+	l.SelectInstance(l.items[0])
+	out := l.String()
+	require.Contains(t, out, "row-00")
+	require.Contains(t, out, "▾ P", "the header of the selected group is drawn")
+	require.Contains(t, out, "↓ ")
+	require.NotContains(t, out, "↑ ")
+
+	l.SelectInstance(l.items[29])
+	out = l.String()
+	require.Contains(t, out, "row-29", "scrolled down to the selection")
+	require.Contains(t, out, "↑ ")
+	require.NotContains(t, out, "↓ ")
+
+	l.SelectInstance(l.items[15])
+	out = l.String()
+	require.Contains(t, out, "row-15")
+	require.Contains(t, out, "↑ ")
+	require.Contains(t, out, "↓ ")
+	for _, line := range strings.Split(out, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 60)
+	}
+	require.LessOrEqual(t, strings.Count(out, "\n"), 24, "never taller than the pane")
 }

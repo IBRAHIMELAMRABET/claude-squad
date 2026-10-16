@@ -78,6 +78,9 @@ var groupHeaderStyle = lipgloss.NewStyle().
 var groupCountStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.AdaptiveColor{Light: "#A49FA5", Dark: "#777777"})
 
+var moreStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.AdaptiveColor{Light: "#A49FA5", Dark: "#777777"})
+
 // now is overridable in tests.
 var now = time.Now
 
@@ -92,6 +95,9 @@ type List struct {
 	folded map[string]bool
 	// projectColors maps a project name to an optional hex color for its header.
 	projectColors map[string]string
+	// offset is the first block (header or session) drawn, so the selection stays visible
+	// when the list is taller than the pane.
+	offset int
 
 	// activeOnly hides paused sessions.
 	activeOnly bool
@@ -319,7 +325,7 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool) s
 
 	age := ago(i.LastActivity)
 	if age != "" {
-		age += " "
+		age = " " + age + " "
 	}
 
 	remainingWidth := r.width
@@ -577,28 +583,110 @@ func (l *List) String() string {
 	b.WriteString("\n")
 	b.WriteString("\n")
 
-	// Render the rows. Sessions are separated by a blank line; a header sits right above
-	// its first session.
+	// Render the rows as blocks (a header, or a session with its blank separator), then
+	// draw the window of blocks that fits the pane and contains the selection.
 	selected := l.GetSelectedInstance()
 	rows := l.rows()
+	blocks := make([]string, len(rows))
+	heights := make([]int, len(rows))
+	selIdx := -1
 	n := 0
 	for i, r := range rows {
+		var text string
 		if r.header {
 			if i > 0 {
-				b.WriteString("\n")
+				text = "\n"
 			}
-			b.WriteString(l.renderHeader(r))
-			b.WriteString("\n")
-			continue
+			text += l.renderHeader(r) + "\n"
+		} else {
+			n++
+			if i > 0 && !rows[i-1].header {
+				text = "\n"
+			}
+			text += l.renderer.Render(r.instance, n, r.instance == selected) + "\n"
+			if r.instance == selected {
+				selIdx = i
+			}
 		}
-		n++
-		if i > 0 && !rows[i-1].header {
-			b.WriteString("\n")
-		}
-		b.WriteString(l.renderer.Render(r.instance, n, r.instance == selected))
-		b.WriteString("\n")
+		blocks[i], heights[i] = text, strings.Count(text, "\n")
+	}
+
+	titleLines := strings.Count(b.String(), "\n")
+	start, end := l.window(heights, selIdx, l.height-titleLines)
+	hiddenAbove, hiddenBelow := countSessions(rows[:start]), countSessions(rows[end:])
+	if hiddenAbove > 0 {
+		b.WriteString(moreStyle.Render(fmt.Sprintf("  ↑ %d more", hiddenAbove)) + "\n")
+	}
+	for i := start; i < end; i++ {
+		b.WriteString(blocks[i])
+	}
+	if hiddenBelow > 0 {
+		b.WriteString(moreStyle.Render(fmt.Sprintf("  ↓ %d more", hiddenBelow)) + "\n")
 	}
 	return lipgloss.Place(l.width, l.height, lipgloss.Left, lipgloss.Top, b.String())
+}
+
+// window picks the blocks [start, end) to draw in avail lines: it scrolls just enough for
+// the selected block (and the header right above it) to be visible, remembering the offset
+// between renders so the list does not jump.
+func (l *List) window(heights []int, selIdx, avail int) (start, end int) {
+	if len(heights) == 0 || avail <= 0 {
+		return 0, 0
+	}
+	if l.offset >= len(heights) {
+		l.offset = len(heights) - 1
+	}
+	if selIdx >= 0 {
+		if selIdx < l.offset {
+			l.offset = selIdx
+		}
+		for l.offset < selIdx && sum(heights[l.offset:selIdx+1]) > avail-1 {
+			l.offset++
+		}
+		// Keep the group header above the selection in view when there is room.
+		if l.offset == selIdx && selIdx > 0 && heights[selIdx-1] <= 2 && sum(heights[selIdx-1:selIdx+1]) <= avail-1 {
+			l.offset = selIdx - 1
+		}
+	}
+	start = l.offset
+	used := 0
+	if start > 0 {
+		used++ // the "more above" line
+	}
+	end = start
+	for end < len(heights) && used+heights[end] <= avail {
+		used += heights[end]
+		end++
+	}
+	if end < len(heights) {
+		// Make room for the "more below" line.
+		for end > start+1 && used+1 > avail {
+			end--
+			used -= heights[end]
+		}
+	}
+	if end <= start {
+		end = start + 1
+	}
+	return start, end
+}
+
+func sum(xs []int) int {
+	t := 0
+	for _, x := range xs {
+		t += x
+	}
+	return t
+}
+
+func countSessions(rows []listRow) int {
+	n := 0
+	for _, r := range rows {
+		if !r.header {
+			n++
+		}
+	}
+	return n
 }
 
 // step moves the selection by delta positions through the visible sessions, wrapping.
