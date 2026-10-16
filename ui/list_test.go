@@ -492,3 +492,15 @@ func TestHeaderFitsTheWidth(t *testing.T) {
 	require.Contains(t, l.String(), "…", "the name is shortened")
 	require.Contains(t, l.String(), " 1 ", "the count stays")
 }
+
+func TestFilterShowsMatchesInFoldedGroups(t *testing.T) {
+	l := newTestList("weekly sec", "other")
+	l.items[0].Project, l.items[1].Project = "Fawri", "Fawri"
+	l.SetFolded([]string{"Fawri"})
+
+	l.SetFilter("weekly")
+	require.Equal(t, []string{"#Fawri", "weekly sec"}, rowLabels(l), "the match is shown although the group is folded")
+	l.SetFilter("")
+	require.Equal(t, []string{"#Fawri"}, rowLabels(l), "the fold is back once the filter is cleared")
+	require.Equal(t, []string{"Fawri"}, l.FoldedProjects())
+}

@@ -558,7 +558,9 @@ func (l *List) rows() []listRow {
 	var rows []listRow
 	for _, name := range names {
 		insts := byProject[name]
-		folded := headers && l.folded[name]
+		// A text filter shows its matches even in folded groups; the folds come back when it
+		// is cleared.
+		folded := headers && l.folded[name] && l.filter == ""
 		if headers {
 			waiting := 0
 			for _, inst := range insts {
