@@ -228,8 +228,11 @@ func KeyBindings(drawer bool) [][]string {
 	if drawer {
 		back += " ; resize-pane -Z -t =" + UISession + ":0.1"
 	}
+	// Coming back to the list also re-applies the layout, which restores the sidebar width
+	// after a terminal resize scaled it while the session was zoomed.
+	toList := "select-pane -t =" + UISession + ":0.0 ; select-layout -t =" + UISession + ":0 main-vertical"
 	return [][]string{
-		{"bind-key", "-n", "M-Left", "if-shell", "-F", inUI, "select-pane -t =" + UISession + ":0.0", "send-keys M-Left"},
+		{"bind-key", "-n", "M-Left", "if-shell", "-F", inUI, toList, "send-keys M-Left"},
 		{"bind-key", "-n", "M-Right", "if-shell", "-F", onList, back, "send-keys M-Right"},
 	}
 }

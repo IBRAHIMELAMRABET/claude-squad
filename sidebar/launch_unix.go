@@ -33,8 +33,10 @@ func Launch(sidebarCommand string, width int, drawer bool) error {
 	if TrueColorTerminal(os.Getenv) {
 		enableTrueColor()
 	}
-	// Always open on the list, even when the layout was left inside a zoomed session.
+	// Always open on the list, even when the layout was left inside a zoomed session, with
+	// the sidebar at its width.
 	_ = run(tmuxPath, "select-pane", "-t", "="+UISession+":0.0")
+	_ = run(tmuxPath, "select-layout", "-t", "="+UISession+":0", "main-vertical")
 	if os.Getenv("TMUX") != "" {
 		return run(tmuxPath, "switch-client", "-t", "="+UISession)
 	}
