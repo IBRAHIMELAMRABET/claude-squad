@@ -91,7 +91,7 @@ mouse, scrollback and cursor, while the list stays visible.
 
 - Moving in the list shows that session on the right; `↵` moves the cursor into it and, by
   default, zooms it to the full window so Claude looks exactly as it does on its own
-  (`sidebar_drawer`). With sessions present, `cs` opens straight into the selected one.
+  (`sidebar_drawer`). `cs` always opens on the list.
 - `Alt-←` brings the list back (and unzooms); `Alt-→` from the list returns to the session as
   it was, zoomed. Inside the session `Alt-→` reaches Claude unchanged.
 - The cursor also stops on group headers: `space`, `↵` or `←`/`→` fold and unfold the group,

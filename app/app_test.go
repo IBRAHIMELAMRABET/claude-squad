@@ -765,14 +765,19 @@ func TestConfirmedActionResultIsDelivered(t *testing.T) {
 	require.True(t, sawErr, "the action's error is delivered to Update")
 }
 
-// With the drawer behaviour, focusing a session also zooms its pane.
+// With the drawer behaviour, opening a session from the list also zooms its pane; at start
+// the list keeps the focus.
 func TestDrawerZoomsOnFocus(t *testing.T) {
 	var ran []string
 	h := sidebarHome(t, &ran)
 	adopted := session.NewAdoptedInstance(tmux.Pane{Session: "scratch", ID: "%7", Command: "claude", Path: t.TempDir()})
 	h.list.AddInstance(adopted)()
 
-	require.Nil(t, h.openOnStart(), "starts straight in the session")
+	h.Init()
+	require.NotContains(t, ran, "tmux select-pane -t %1", "the list keeps the focus at start")
+
+	h.keySent = true
+	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyEnter})
 	require.Equal(t, "scratch", h.shown)
 	require.Contains(t, ran, "tmux select-pane -t %1")
 	require.Contains(t, ran, "tmux resize-pane -Z -t %1", "zoomed because the drawer is on by default")

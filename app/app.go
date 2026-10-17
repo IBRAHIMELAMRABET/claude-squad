@@ -308,7 +308,8 @@ func (m *home) Init() tea.Cmd {
 			return previewTickMsg{}
 		})
 	} else {
-		cmds = append(cmds, m.openOnStart())
+		// Start on the list: the selected session is shown beside it, nothing is focused.
+		cmds = append(cmds, m.instanceChanged())
 	}
 	return tea.Batch(cmds...)
 }
@@ -1354,15 +1355,6 @@ func (m *home) focusSession() tea.Cmd {
 		}
 	}
 	return nil
-}
-
-// openOnStart puts the cursor straight into the selected session when the layout starts
-// with sessions, so the first screen is Claude, not the list.
-func (m *home) openOnStart() tea.Cmd {
-	if m.followTarget() == "" {
-		return m.instanceChanged()
-	}
-	return m.focusSession()
 }
 
 // showPaneHelp pages the help text in the session pane.
