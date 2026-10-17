@@ -226,7 +226,7 @@ func (m *Menu) sidebarOptions() []keys.KeyName {
 var shortHelp = map[keys.KeyName]string{
 	keys.KeyPrompt:      "new+prompt",
 	keys.KeyNextWaiting: "waiting",
-	keys.KeyActiveOnly:  "active",
+	keys.KeyActiveOnly:  "view",
 	keys.KeySubmit:      "push",
 }
 

@@ -46,7 +46,7 @@ func (h helpTypeGeneral) toContent() string {
 		keyStyle.Render("↑/j, ↓/k")+descStyle.Render("  - Navigate between sessions"),
 		keyStyle.Render("space")+descStyle.Render("     - Fold/unfold the group (↵ on a header too)"),
 		keyStyle.Render("←/→")+descStyle.Render("       - Fold / unfold the group under the cursor"),
-		keyStyle.Render("a")+descStyle.Render("         - Show active sessions only (hide paused)"),
+		keyStyle.Render("a")+descStyle.Render("         - Switch the view: all, active, waiting (or click the bar)"),
 		keyStyle.Render("/")+descStyle.Render("         - Filter sessions by text (enter keeps, esc clears)"),
 		keyStyle.Render("z")+descStyle.Render("         - Hide/show the session list (full-width preview)"),
 		keyStyle.Render("w")+descStyle.Render("         - Jump to the next session waiting for you"),

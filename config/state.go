@@ -39,8 +39,11 @@ type AppState interface {
 type UIPrefs struct {
 	// FoldedProjects lists the project groups collapsed in the session list.
 	FoldedProjects []string `json:"folded_projects,omitempty"`
-	// ActiveOnly hides paused sessions from the list.
+	// ActiveOnly hides paused sessions from the list (kept for older state files; see
+	// FilterMode).
 	ActiveOnly bool `json:"active_only,omitempty"`
+	// FilterMode is the list view: "All", "Active" or "Waiting".
+	FilterMode string `json:"filter_mode,omitempty"`
 	// ListHidden collapses the session list so the preview takes the full width.
 	ListHidden bool `json:"list_hidden,omitempty"`
 }

@@ -153,7 +153,7 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	),
 	KeyActiveOnly: key.NewBinding(
 		key.WithKeys("a"),
-		key.WithHelp("a", "active only"),
+		key.WithHelp("a", "all/active/waiting"),
 	),
 	KeySearch: key.NewBinding(
 		key.WithKeys("/"),

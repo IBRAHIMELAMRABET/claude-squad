@@ -4,12 +4,14 @@ import (
 	"claude-squad/config"
 	"claude-squad/session"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -123,11 +125,13 @@ func TestSessionsWithoutProjectGroupByFolder(t *testing.T) {
 	key := config.FolderGroupPath(l.items[0].ProjectPath())
 	require.NotEmpty(t, key)
 	require.Equal(t, []string{"#" + key, "a", "b"}, rowLabels(l), "one folder header for both")
-	require.Equal(t, "ui", l.rows()[0].name, "the header shows the folder's own name")
+	require.Equal(t, "brahim/claude-squad/ui", l.rows()[0].name, "the header shows the last three path segments")
+	l.SetLabelSegments(1)
+	require.Equal(t, "ui", l.rows()[0].name, "or fewer when configured")
 }
 
 func TestFolderGroupLabelsAreNamesAndDisambiguated(t *testing.T) {
-	labels := groupLabels([]string{"/w/one/Backend", "/w/two/Backend", "/w/app", "Fawri", "/w/Fawri"})
+	labels := groupLabels([]string{"/w/one/Backend", "/w/two/Backend", "/w/app", "Fawri", "/w/Fawri"}, 1)
 	require.Equal(t, "one/Backend", labels["/w/one/Backend"], "same folder name: the parent is added")
 	require.Equal(t, "two/Backend", labels["/w/two/Backend"])
 	require.Equal(t, "app", labels["/w/app"])
@@ -504,3 +508,65 @@ func TestFilterShowsMatchesInFoldedGroups(t *testing.T) {
 	require.Equal(t, []string{"#Fawri"}, rowLabels(l), "the fold is back once the filter is cleared")
 	require.Equal(t, []string{"Fawri"}, l.FoldedProjects())
 }
+
+func TestThreeSegmentLabelsLikeASessionBrowser(t *testing.T) {
+	labels := groupLabels([]string{
+		"/mnt/c/Users/me/Documents/B3G/Projects/CMIBills/Code/Backend",
+		"/mnt/c/Users/me/Documents/B3G/Projects/AIStudio",
+		"/mnt/c/Users/me",
+	}, 3)
+	require.Equal(t, "CMIBills/Code/Backend", labels["/mnt/c/Users/me/Documents/B3G/Projects/CMIBills/Code/Backend"])
+	require.Equal(t, "B3G/Projects/AIStudio", labels["/mnt/c/Users/me/Documents/B3G/Projects/AIStudio"])
+	require.Equal(t, "c/Users/me", labels["/mnt/c/Users/me"])
+}
+
+func TestViewModes(t *testing.T) {
+	l := newTestList("running", "waiting", "paused", "past")
+	l.items[1].Status = session.Waiting
+	l.items[2].Status = session.Paused
+	l.items[3].Archived, l.items[3].Status = true, session.Stopped
+
+	require.Equal(t, ViewAll, l.Mode())
+	require.Len(t, l.visible(), 4)
+	l.CycleMode()
+	require.Equal(t, ViewActive, l.Mode())
+	require.ElementsMatch(t, []string{"running", "waiting"}, titlesOf(l.visible()))
+	l.CycleMode()
+	require.Equal(t, ViewWaiting, l.Mode())
+	require.Equal(t, []string{"waiting"}, titlesOf(l.visible()))
+	l.CycleMode()
+	require.Equal(t, ViewAll, l.Mode(), "wraps back to all")
+
+	require.Equal(t, 4, l.viewCount(ViewAll))
+	require.Equal(t, 2, l.viewCount(ViewActive))
+	require.Equal(t, 1, l.viewCount(ViewWaiting))
+	require.Equal(t, ViewWaiting, ParseViewMode("waiting"))
+	require.Equal(t, ViewAll, ParseViewMode("nonsense"))
+}
+
+func TestModeBarIsDrawnAndClickable(t *testing.T) {
+	l := newTestList("a", "b")
+	l.items[0].Status = session.Waiting
+	l.SetCompact(true)
+	l.SetSize(32, 20)
+
+	out := l.String()
+	first := strings.Split(out, "\n")[0]
+	require.Contains(t, first, "All 2")
+	require.Contains(t, first, "Active 2")
+	require.Contains(t, first, "Waiting 1")
+	require.LessOrEqual(t, lipgloss.Width(first), 32)
+
+	plain := stripANSI(first)
+	col := strings.Index(plain, "Waiting")
+	require.GreaterOrEqual(t, col, 0)
+	mode, ok := l.ViewAt(runewidth.StringWidth(plain[:col])+1, 0)
+	require.True(t, ok)
+	require.Equal(t, ViewWaiting, mode)
+	_, ok = l.ViewAt(5, 1)
+	require.False(t, ok, "only the first line is the bar")
+}
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }

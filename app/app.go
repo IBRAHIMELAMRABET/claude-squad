@@ -8,6 +8,7 @@ import (
 	"claude-squad/log"
 	"claude-squad/session"
 	"claude-squad/session/git"
+	"claude-squad/session/history"
 	"claude-squad/session/tmux"
 	"claude-squad/sidebar"
 	"claude-squad/ui"
@@ -120,6 +121,11 @@ type home struct {
 	shown string
 	// followVersion invalidates pending follow timers when the selection moves again.
 	followVersion uint64
+	// historyScanner reads Claude's transcripts, re-reading only changed files; repoRoots
+	// maps a transcript's directory to its repository root ("" outside a repository). Both
+	// are filled by the background scan.
+	historyScanner *history.Scanner
+	repoRoots      map[string]string
 	// width is the last known terminal width; listWidth the columns the list occupies.
 	width     int
 	listWidth int
@@ -200,7 +206,7 @@ func newHome(ctx context.Context, program string, autoYes bool) *home {
 
 	// Add loaded instances to the list
 	for _, instance := range instances {
-		instance.Project = appConfig.ProjectFor(instance.ProjectPath())
+		instance.Project = appConfig.GroupFor(instance.ProjectPath())
 		// Call the finalizer immediately.
 		h.list.AddInstance(instance)()
 		if autoYes {
@@ -209,7 +215,12 @@ func newHome(ctx context.Context, program string, autoYes bool) *home {
 	}
 	h.list.SetProjectColors(projectColors(appConfig))
 	h.list.SetFolded(appState.GetUIPrefs().FoldedProjects)
-	h.list.SetActiveOnly(appState.GetUIPrefs().ActiveOnly)
+	h.list.SetLabelSegments(appConfig.GetGroupLabelSegments())
+	if prefs := appState.GetUIPrefs(); prefs.FilterMode != "" {
+		h.list.SetMode(ui.ParseViewMode(prefs.FilterMode))
+	} else {
+		h.list.SetActiveOnly(prefs.ActiveOnly)
+	}
 	h.listHidden = appState.GetUIPrefs().ListHidden
 
 	return h
@@ -231,6 +242,7 @@ func (m *home) saveUIPrefs() {
 	prefs := m.appState.GetUIPrefs()
 	prefs.FoldedProjects = m.list.FoldedProjects()
 	prefs.ActiveOnly = m.list.ActiveOnly()
+	prefs.FilterMode = m.list.Mode().String()
 	prefs.ListHidden = m.listHidden
 	if err := m.appState.SetUIPrefs(prefs); err != nil {
 		log.WarningLog.Printf("failed to save UI preferences: %v", err)
@@ -366,7 +378,7 @@ func (m *home) reconcileAdopted(panes []tmux.Pane) bool {
 			continue
 		}
 		inst := session.NewAdoptedInstance(p)
-		inst.Project = m.appConfig.ProjectFor(p.Path)
+		inst.Project = m.appConfig.GroupFor(p.Path)
 		m.list.AddInstance(inst)()
 		changed = true
 	}
@@ -395,6 +407,12 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.showSelected()
 	case historyScanMsg:
+		if m.repoRoots == nil {
+			m.repoRoots = make(map[string]string)
+		}
+		for dir, root := range msg.roots {
+			m.repoRoots[dir] = root
+		}
 		next := m.scanHistoryCmd(historyScanInterval)
 		if m.reconcileHistory(msg.entries) {
 			return m, tea.Batch(m.instanceChanged(), next)
@@ -684,7 +702,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 				}
 				m.repoIdx = (m.repoIdx + step) % len(m.repoChoices)
 				instance.Path = m.repoChoices[m.repoIdx]
-				instance.Project = m.appConfig.ProjectFor(instance.Path)
+				instance.Project = m.appConfig.GroupFor(instance.Path)
 			}
 			return m, m.instanceChanged()
 		case tea.KeyEsc:
@@ -1001,7 +1019,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.saveUIPrefs()
 		return m, m.instanceChanged()
 	case keys.KeyActiveOnly:
-		m.list.SetActiveOnly(!m.list.ActiveOnly())
+		m.list.CycleMode()
 		m.saveUIPrefs()
 		return m, m.instanceChanged()
 	case keys.KeySearch:
@@ -1102,7 +1120,7 @@ func (m *home) newInstanceInPickedRepo() (*session.Instance, error) {
 	if err != nil {
 		return nil, err
 	}
-	instance.Project = m.appConfig.ProjectFor(instance.Path)
+	instance.Project = m.appConfig.GroupFor(instance.Path)
 	return instance, nil
 }
 
@@ -1164,6 +1182,11 @@ func (m *home) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseButtonLeft:
 		if !inList {
 			return m, nil
+		}
+		if mode, ok := m.list.ViewAt(msg.X, msg.Y-1); ok {
+			m.list.SetMode(mode)
+			m.saveUIPrefs()
+			return m, m.instanceChanged()
 		}
 		row, ok := m.list.HitTest(msg.Y - 1) // the list is drawn under one line of padding
 		if !ok {

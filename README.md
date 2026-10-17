@@ -94,6 +94,8 @@ mouse, scrollback and cursor, while the list stays visible.
   (`sidebar_drawer`). `cs` always opens on the list.
 - `Alt-←` brings the list back (and unzooms); `Alt-→` from the list returns to the session as
   it was, zoomed. Inside the session `Alt-→` reaches Claude unchanged.
+- A filter bar at the top shows **All**, **Active** (running, idle or waiting) and **Waiting**
+  with their counts; `a` cycles through them and a click selects one.
 - The cursor also stops on group headers: `space`, `↵` or `←`/`→` fold and unfold the group,
   and a click on a header does the same. Moving over a header leaves the session pane as is.
 - When the terminal renders 24-bit colour (Windows Terminal, VS Code, iTerm2, WezTerm, or
@@ -114,8 +116,9 @@ running ones and marked `○`. Selecting one shows its title, directory, date an
 row turns into a running session. Sessions recorded on Windows resume from WSL too: Claude
 finds the transcript by id and the reply lands in the same file.
 
-Only the most recent sessions are listed (`history_limit` per project directory,
-`history_days` back), and sessions from temporary folders are hidden (`history_ignore`).
+Every session is listed by default (`history_limit` and `history_days` can cap them), titled
+by its latest `/rename` or its first prompt; sessions from temporary folders are hidden
+(`history_ignore`). Transcripts are re-read only when they change.
 
 <br />
 
@@ -208,8 +211,10 @@ All of these are optional; without them the fork behaves like upstream plus grou
 | `sidebar_width` | `32` | Width of the session list pane, in columns. |
 | `sidebar_drawer` | `true` | In the sidebar layout, zoom the session to the full window when it takes focus; `Alt-←` brings the list back. `false` keeps both panes visible. |
 | `disable_history` | `false` | Do not list past Claude sessions from `~/.claude/projects`. |
-| `history_limit` | `8` | Past sessions listed per project directory. |
-| `history_days` | `30` | Past sessions older than this are hidden; `-1` lists all. |
+| `history_limit` | `0` | Cap on past sessions per project directory; `0` lists them all. |
+| `history_days` | `0` | Hide past sessions older than this many days; `0` lists them all. |
+| `group_by` | `"project"` | `"folder"` always groups sessions by folder, like a session browser, ignoring `projects` and `projects_root` for grouping (they still feed the repository picker). |
+| `group_label_segments` | `3` | How many trailing path segments name a folder group, e.g. `CMIBills/Code/Backend`. |
 | `history_ignore` | `["/AppData/Local/Temp/", "/tmp/"]` | Directory fragments whose sessions are hidden. |
 | `notifications` | `{"bell": true, "title": true}` | Ring the terminal bell when a session starts waiting, and keep the waiting count in the window title. |
 | `disable_adopt` | `false` | Do not list agent sessions running in tmux sessions `cs` did not create. |

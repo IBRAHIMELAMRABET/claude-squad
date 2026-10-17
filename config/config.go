@@ -88,15 +88,22 @@ type Config struct {
 	ClaudeSettings json.RawMessage `json:"claude_settings,omitempty"`
 	// DisableHistory hides past Claude Code sessions (from ~/.claude/projects) in the list.
 	DisableHistory bool `json:"disable_history,omitempty"`
-	// HistoryLimit is how many past sessions per project directory are listed. Zero means
-	// DefaultHistoryLimit.
+	// HistoryLimit caps how many past sessions per project directory are listed. Zero (the
+	// default) lists them all.
 	HistoryLimit int `json:"history_limit,omitempty"`
-	// HistoryDays hides past sessions older than this many days. Zero means
-	// DefaultHistoryDays; a negative value disables the age limit.
+	// HistoryDays hides past sessions older than this many days. Zero (the default) lists
+	// them all.
 	HistoryDays int `json:"history_days,omitempty"`
 	// HistoryIgnore lists path fragments; past sessions whose directory contains one are
 	// not listed. Omitted means DefaultHistoryIgnore (temporary and scratch folders).
 	HistoryIgnore []string `json:"history_ignore,omitempty"`
+	// GroupBy chooses how sessions are grouped: GroupByProject (default: the projects and
+	// projects_root rules, folders otherwise) or GroupByFolder (always by folder, like a
+	// session browser).
+	GroupBy string `json:"group_by,omitempty"`
+	// GroupLabelSegments is how many trailing path segments name a folder group. Zero means
+	// DefaultGroupLabelSegments.
+	GroupLabelSegments int `json:"group_label_segments,omitempty"`
 	// SidebarWidth is the width of the session list pane in the sidebar layout. Zero means
 	// DefaultSidebarWidth.
 	SidebarWidth int `json:"sidebar_width,omitempty"`
@@ -107,11 +114,30 @@ type Config struct {
 }
 
 const (
-	// DefaultHistoryLimit is the number of past sessions listed per project directory.
-	DefaultHistoryLimit = 8
-	// DefaultHistoryDays is how far back past sessions are listed.
-	DefaultHistoryDays = 30
+	// GroupByProject groups by the projects/projects_root rules, then by folder.
+	GroupByProject = "project"
+	// GroupByFolder always groups by folder.
+	GroupByFolder = "folder"
+	// DefaultGroupLabelSegments is how many trailing path segments name a folder group.
+	DefaultGroupLabelSegments = 3
 )
+
+// GroupFor returns the project a path is grouped under, or "" when it is grouped by its
+// folder.
+func (c *Config) GroupFor(path string) string {
+	if c.GroupBy == GroupByFolder {
+		return ""
+	}
+	return c.ProjectFor(path)
+}
+
+// GetGroupLabelSegments returns how many trailing path segments name a folder group.
+func (c *Config) GetGroupLabelSegments() int {
+	if c.GroupLabelSegments <= 0 {
+		return DefaultGroupLabelSegments
+	}
+	return c.GroupLabelSegments
+}
 
 // DefaultHistoryIgnore hides sessions that ran in temporary folders.
 var DefaultHistoryIgnore = []string{"/AppData/Local/Temp/", "/tmp/"}
@@ -131,21 +157,18 @@ func (c *Config) HistoryIgnored(dir string) bool {
 	return false
 }
 
-// GetHistoryLimit returns the per-project cap on past sessions.
+// GetHistoryLimit returns the per-project cap on past sessions; zero means no cap.
 func (c *Config) GetHistoryLimit() int {
-	if c.HistoryLimit <= 0 {
-		return DefaultHistoryLimit
+	if c.HistoryLimit < 0 {
+		return 0
 	}
 	return c.HistoryLimit
 }
 
 // GetHistoryMaxAge returns how old a past session may be to be listed; zero means no limit.
 func (c *Config) GetHistoryMaxAge() time.Duration {
-	switch {
-	case c.HistoryDays < 0:
+	if c.HistoryDays <= 0 {
 		return 0
-	case c.HistoryDays == 0:
-		return DefaultHistoryDays * 24 * time.Hour
 	}
 	return time.Duration(c.HistoryDays) * 24 * time.Hour
 }

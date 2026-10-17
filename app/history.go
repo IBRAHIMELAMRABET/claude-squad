@@ -19,9 +19,11 @@ import (
 // historyScanInterval is how often Claude's transcript store is rescanned.
 const historyScanInterval = 60 * time.Second
 
-// historyScanMsg carries the past sessions found in the transcript store.
+// historyScanMsg carries the past sessions found in the transcript store, and the
+// repository roots of directories seen for the first time.
 type historyScanMsg struct {
 	entries []history.Entry
+	roots   map[string]string
 }
 
 // scanHistoryCmd lists past sessions in the background. The first scan runs at once, later
@@ -31,6 +33,16 @@ func (m *home) scanHistoryCmd(delay time.Duration) tea.Cmd {
 		return nil
 	}
 	limit, maxAge := m.appConfig.GetHistoryLimit(), m.appConfig.GetHistoryMaxAge()
+	if m.historyScanner == nil {
+		m.historyScanner = history.NewScanner()
+	}
+	// The scanner is only used by this command, and scans never overlap: the next one is
+	// scheduled when this one's result arrives.
+	scanner := m.historyScanner
+	known := make(map[string]bool, len(m.repoRoots))
+	for dir := range m.repoRoots {
+		known[dir] = true
+	}
 	return func() tea.Msg {
 		time.Sleep(delay)
 		dir, err := history.ProjectsDir()
@@ -38,12 +50,27 @@ func (m *home) scanHistoryCmd(delay time.Duration) tea.Cmd {
 			log.WarningLog.Printf("history disabled: %v", err)
 			return nil
 		}
-		entries, err := history.Scan(dir, limit, maxAge)
+		entries, err := scanner.Scan(dir, limit, maxAge)
 		if err != nil {
 			log.WarningLog.Printf("could not scan past sessions: %v", err)
 			return nil
 		}
-		return historyScanMsg{entries: entries}
+		// Resolve each new directory to its repository once, here rather than on the UI
+		// thread: git is slow on Windows drives.
+		roots := make(map[string]string)
+		for _, e := range entries {
+			cwd := config.NormalizePath(e.CWD)
+			if known[cwd] {
+				continue
+			}
+			known[cwd] = true
+			if root, err := git.MainRepoRoot(cwd); err == nil {
+				roots[cwd] = root
+			} else {
+				roots[cwd] = ""
+			}
+		}
+		return historyScanMsg{entries: entries, roots: roots}
 	}
 }
 
@@ -94,13 +121,13 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 			continue
 		}
 		inst := session.NewArchivedInstance(e.ID, e.Title, e.CWD, e.LastPrompt, e.Updated)
-		// Group by the repository the session worked in, resolving worktrees to their main
-		// repository; directories outside any repository group by themselves.
+		// Group by the repository the session worked in (worktrees resolved to their main
+		// repository by the scan); directories outside any repository group by themselves.
 		groupPath := e.CWD
-		if root, err := git.MainRepoRoot(e.CWD); err == nil {
+		if root := m.repoRoots[e.CWD]; root != "" {
 			groupPath = root
 		}
-		inst.Project = m.appConfig.ProjectFor(groupPath)
+		inst.Project = m.appConfig.GroupFor(groupPath)
 		inst.GroupPath = groupPath
 		m.list.AddInstance(inst)()
 		changed = true

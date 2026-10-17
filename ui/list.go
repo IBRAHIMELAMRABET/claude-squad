@@ -108,8 +108,12 @@ type List struct {
 	// session. GetSelectedInstance returns nil while the cursor is on a header.
 	headerCursor string
 
-	// activeOnly hides paused sessions.
-	activeOnly bool
+	// mode selects which sessions are shown (all, active, waiting).
+	mode ViewMode
+	// labelSegments is how many trailing path segments name a folder group.
+	labelSegments int
+	// modeSpans records where each view of the filter bar was drawn, for mouse clicks.
+	modeSpans []modeSpan
 	// filter is a case-insensitive substring matched against title, project, repo and branch.
 	filter string
 }
@@ -121,6 +125,7 @@ func NewList(spinner *spinner.Model, autoYes bool) *List {
 		autoyes:       autoYes,
 		folded:        make(map[string]bool),
 		projectColors: make(map[string]string),
+		labelSegments: config.DefaultGroupLabelSegments,
 	}
 }
 
@@ -177,15 +182,101 @@ func (l *List) SetFolded(projects []string) {
 	}
 }
 
-// SetActiveOnly hides or shows paused sessions.
-func (l *List) SetActiveOnly(on bool) {
-	l.activeOnly = on
+// ViewMode selects which sessions the list shows.
+type ViewMode int
+
+const (
+	// ViewAll shows every session, running or past.
+	ViewAll ViewMode = iota
+	// ViewActive shows live sessions only: running, idle or waiting, not paused or past.
+	ViewActive
+	// ViewWaiting shows the sessions waiting for the user.
+	ViewWaiting
+)
+
+var viewNames = []string{"All", "Active", "Waiting"}
+
+func (v ViewMode) String() string {
+	if v < 0 || int(v) >= len(viewNames) {
+		return viewNames[0]
+	}
+	return viewNames[v]
+}
+
+// ParseViewMode maps a saved name back to a view mode, defaulting to ViewAll.
+func ParseViewMode(name string) ViewMode {
+	for i, n := range viewNames {
+		if strings.EqualFold(n, name) {
+			return ViewMode(i)
+		}
+	}
+	return ViewAll
+}
+
+// SetMode selects which sessions are shown.
+func (l *List) SetMode(mode ViewMode) {
+	l.mode = mode
 	l.ensureVisibleSelection()
 }
 
-// ActiveOnly reports whether paused sessions are hidden.
+// Mode returns which sessions are shown.
+func (l *List) Mode() ViewMode {
+	return l.mode
+}
+
+// CycleMode switches to the next view: All, Active, Waiting, then All again.
+func (l *List) CycleMode() {
+	l.SetMode((l.mode + 1) % ViewMode(len(viewNames)))
+}
+
+// SetActiveOnly switches between the Active and All views.
+func (l *List) SetActiveOnly(on bool) {
+	if on {
+		l.SetMode(ViewActive)
+	} else {
+		l.SetMode(ViewAll)
+	}
+}
+
+// ActiveOnly reports whether the Active view is selected.
 func (l *List) ActiveOnly() bool {
-	return l.activeOnly
+	return l.mode == ViewActive
+}
+
+// SetLabelSegments sets how many trailing path segments name a folder group.
+func (l *List) SetLabelSegments(n int) {
+	if n < 1 {
+		n = 1
+	}
+	l.labelSegments = n
+}
+
+// isLive reports whether a session is running (or idle, or waiting), as opposed to paused
+// or only known from its transcript.
+func isLive(i *session.Instance) bool {
+	return !i.Archived && !i.Paused() && i.Status != session.Stopped
+}
+
+// inView reports whether a session belongs to a view.
+func inView(i *session.Instance, mode ViewMode) bool {
+	switch mode {
+	case ViewActive:
+		return isLive(i)
+	case ViewWaiting:
+		return i.NeedsAttention()
+	}
+	return true
+}
+
+// viewCount returns how many sessions a view holds, ignoring the text filter.
+func (l *List) viewCount(mode ViewMode) int {
+	n := 0
+	for _, inst := range l.items {
+		if inView(inst, mode) {
+			n++
+		}
+	}
+	return n
 }
 
 // SetFilter sets the text filter; empty clears it.
@@ -201,14 +292,14 @@ func (l *List) Filter() string {
 
 // matches reports whether the instance passes the active and text filters.
 func (l *List) matches(i *session.Instance) bool {
-	if l.activeOnly && (i.Paused() || i.Archived) {
+	if !inView(i, l.mode) {
 		return false
 	}
 	if l.filter == "" {
 		return true
 	}
 	needle := strings.ToLower(l.filter)
-	for _, hay := range []string{i.Title, groupLabel(groupKey(i), 1), i.RepoLabel(), i.Branch} {
+	for _, hay := range []string{i.Title, groupLabel(groupKey(i), l.labelSegments), i.RepoLabel(), i.Branch} {
 		if strings.Contains(strings.ToLower(hay), needle) {
 			return true
 		}
@@ -455,12 +546,12 @@ func groupLabel(key string, segments int) string {
 
 // groupLabels names every group, adding parent folders to folder groups whose name would
 // otherwise collide with another group's.
-func groupLabels(keys []string) map[string]string {
+func groupLabels(keys []string, base int) map[string]string {
 	labels := make(map[string]string, len(keys))
 	segments := make(map[string]int, len(keys))
 	for _, k := range keys {
-		segments[k] = 1
-		labels[k] = groupLabel(k, 1)
+		segments[k] = base
+		labels[k] = groupLabel(k, base)
 	}
 	for round := 0; round < 8; round++ {
 		count := make(map[string]int, len(keys))
@@ -521,7 +612,7 @@ func (l *List) groups() ([]string, map[string][]*session.Instance, map[string]st
 	for name := range byProject {
 		names = append(names, name)
 	}
-	labels := groupLabels(names)
+	labels := groupLabels(names, l.labelSegments)
 	sort.Slice(names, func(a, b int) bool {
 		if fa, fb := isFolderKey(names[a]), isFolderKey(names[b]); fa != fb {
 			return fb
@@ -661,20 +752,11 @@ func (l *List) String() string {
 
 	var b strings.Builder
 	if l.compact {
-		// No title badge: just one dim line with the active filters and the waiting count,
-		// when there is anything to say.
-		var parts []string
-		if l.activeOnly {
-			parts = append(parts, "active only")
-		}
+		// The filter bar: All, Active and Waiting with their counts, the current one
+		// highlighted; then the text filter, when one is set.
+		b.WriteString(l.renderModeBar() + "\n")
 		if l.filter != "" {
-			parts = append(parts, "/"+l.filter)
-		}
-		if n := l.WaitingCount(); n > 0 {
-			parts = append(parts, waitingStyle.Render(fmt.Sprintf("%d waiting", n)))
-		}
-		if len(parts) > 0 {
-			b.WriteString(" " + moreStyle.Render(strings.Join(parts, " · ")) + "\n")
+			b.WriteString(" " + moreStyle.Render("/"+l.filter) + "\n")
 		}
 	} else {
 		// Write the title.
@@ -686,8 +768,8 @@ func (l *List) String() string {
 		// add padding of 2 because the border on list items adds some extra characters
 		titleWidth := AdjustPreviewWidth(l.width) + 2
 		left := mainTitle.Render(titleText)
-		if l.activeOnly {
-			left += " " + badgeStyle.Render(" active ")
+		if l.mode != ViewAll {
+			left += " " + badgeStyle.Render(" "+strings.ToLower(l.mode.String())+" ")
 		}
 		if l.filter != "" {
 			left += " " + badgeStyle.Render(" /"+l.filter+" ")
@@ -765,6 +847,64 @@ func (l *List) String() string {
 		b.WriteString(moreStyle.Render(fmt.Sprintf("  ↓ %d more", hiddenBelow)) + "\n")
 	}
 	return lipgloss.Place(l.width, l.height, lipgloss.Left, lipgloss.Top, b.String())
+}
+
+// modeSpan is the column range [start, end) of one view in the filter bar (line 0).
+type modeSpan struct {
+	start, end int
+	mode       ViewMode
+}
+
+// renderModeBar draws " All 350  Active 2  Waiting 0" with the current view highlighted,
+// recording where each view was drawn. Labels shrink when the pane is too narrow.
+func (l *List) renderModeBar() string {
+	labels := viewNames
+	render := func(names []string) (string, []modeSpan) {
+		var b strings.Builder
+		var spans []modeSpan
+		col := 1
+		b.WriteString(" ")
+		for i, name := range names {
+			mode := ViewMode(i)
+			text := fmt.Sprintf("%s %d", name, l.viewCount(mode))
+			if i > 0 {
+				b.WriteString("  ")
+				col += 2
+			}
+			if mode == l.mode {
+				text = " " + text + " "
+				b.WriteString(badgeStyle.Render(text))
+			} else if mode == ViewWaiting && l.viewCount(mode) > 0 {
+				b.WriteString(waitingStyle.Render(text))
+			} else {
+				b.WriteString(moreStyle.Render(text))
+			}
+			w := runewidth.StringWidth(text)
+			spans = append(spans, modeSpan{start: col, end: col + w, mode: mode})
+			col += w
+		}
+		return b.String(), spans
+	}
+	bar, spans := render(labels)
+	if l.width > 0 && spans[len(spans)-1].end > l.width {
+		bar, spans = render([]string{"All", "Act", "Wait"})
+	}
+	l.modeSpans = spans
+	return bar
+}
+
+// ViewAt returns the view drawn at column x of the given line (0 = the list's first line),
+// as of the last render.
+func (l *List) ViewAt(x, line int) (ViewMode, bool) {
+	if !l.compact || line != 0 {
+		return ViewAll, false
+	}
+	for _, s := range l.modeSpans {
+		if x >= s.start && x < s.end {
+			return s.mode, true
+		}
+	}
+	return ViewAll, false
 }
 
 // rowSpan is the line range [start, end) a drawn row occupied in the last render.

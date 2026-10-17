@@ -38,7 +38,9 @@ func TestParseHead(t *testing.T) {
 }
 
 func TestCleanPromptAndShorten(t *testing.T) {
-	require.Equal(t, "deploy it", CleanPrompt("<command-message>img</command-message>\n<command-name>/img</command-name>deploy   it"))
+	require.Equal(t, "/img deploy it", CleanPrompt("<command-message>img</command-message>\n<command-name>/img</command-name>deploy   it"), "the command echo goes, the command stays")
+	require.Equal(t, "I want to fork it", CleanPrompt(`<pasted_content id="x">I want to fork it</pasted_content>`), "pasted text is kept")
+	require.Equal(t, "", CleanPrompt("<system-reminder>\nnote\n</system-reminder>"))
 	require.Equal(t, "abcd…", Shorten("abcdefgh", 5))
 	require.Equal(t, "short", Shorten("short", 5))
 }
@@ -85,4 +87,35 @@ func TestScan(t *testing.T) {
 
 	_, err = Scan(filepath.Join(root, "missing"), 2, 0)
 	require.Error(t, err)
+}
+
+// /rename appends a custom-title entry; the latest one, at the end of the file, wins over
+// the first prompt and over an older title in the head.
+func TestRenamedSessionTitleComesFromTheTail(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"type":"custom-title","customTitle":"old name","sessionId":"a"}
+{"type":"user","cwd":"/home/me/repo","message":{"role":"user","content":"<pasted_content id=\"p\">fork the app</pasted_content>"}}
+`
+	// Push the rename beyond the head and beyond one tail window.
+	filler := `{"type":"assistant","cwd":"/home/me/repo","message":{"role":"assistant","content":[{"type":"text","text":"` + strings.Repeat("x", 1000) + `"}]}}` + "\n"
+	body += strings.Repeat(filler, 300)
+	body += `{"type":"custom-title","customTitle":"My Claude","sessionId":"a"}` + "\n"
+	body += `{"type":"last-prompt","lastPrompt":"how i run it","sessionId":"a"}` + "\n"
+	writeTranscript(t, dir, "77777777-7777-7777-7777-777777777777", body, time.Now())
+
+	s := NewScanner()
+	entries, err := s.Scan(filepath.Dir(dir), 0, 0)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "My Claude", entries[0].Title)
+	require.Equal(t, "how i run it", entries[0].LastPrompt)
+
+	// A second scan of an unchanged file is served from the cache.
+	require.Len(t, s.cache, 1)
+	again, err := s.Scan(filepath.Dir(dir), 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, entries, again)
+
+	sum := ParseHead(strings.NewReader(body))
+	require.Equal(t, "old name", sum.customTitle, "the head alone only knows the old name")
 }

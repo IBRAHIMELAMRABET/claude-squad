@@ -5,6 +5,7 @@ package history
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -25,9 +26,9 @@ type Entry struct {
 	// CWD is the working directory recorded in the transcript, as written (it may be a
 	// Windows path when the session ran on Windows).
 	CWD string
-	// Title is the custom title set with /rename, or the first prompt, shortened.
+	// Title is the latest custom title set with /rename, or the first prompt, shortened.
 	Title string
-	// LastPrompt is the most recent prompt found in the head of the transcript, if any.
+	// LastPrompt is the most recent prompt recorded in the transcript, if any.
 	LastPrompt string
 	// Updated is the transcript's modification time.
 	Updated time.Time
@@ -49,10 +50,33 @@ func ProjectsDir() (string, error) {
 
 var sessionFile = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$`)
 
-// Scan returns the most recent sessions of every project under projectsDir: at most
-// perProject per project directory, none older than maxAge when maxAge is positive, newest
-// first. A session id seen in several directories is kept once, from its newest file.
+// Scanner lists past sessions, re-reading only the transcripts that changed since its
+// previous scan. It is not safe for concurrent use.
+type Scanner struct {
+	cache map[string]cachedSummary
+}
+
+type cachedSummary struct {
+	mod     time.Time
+	size    int64
+	summary summary
+}
+
+// NewScanner returns a Scanner with an empty cache.
+func NewScanner() *Scanner {
+	return &Scanner{cache: make(map[string]cachedSummary)}
+}
+
+// Scan lists sessions without keeping a cache between calls.
 func Scan(projectsDir string, perProject int, maxAge time.Duration) ([]Entry, error) {
+	return NewScanner().Scan(projectsDir, perProject, maxAge)
+}
+
+// Scan returns the sessions of every project under projectsDir, newest first: at most
+// perProject per project directory when perProject is positive, none older than maxAge
+// when maxAge is positive. A session id seen in several directories is kept once, from its
+// newest file.
+func (s *Scanner) Scan(projectsDir string, perProject int, maxAge time.Duration) ([]Entry, error) {
 	dirs, err := os.ReadDir(projectsDir)
 	if err != nil {
 		return nil, err
@@ -62,6 +86,7 @@ func Scan(projectsDir string, perProject int, maxAge time.Duration) ([]Entry, er
 		cutoff = time.Now().Add(-maxAge)
 	}
 
+	seen := make(map[string]bool)
 	byID := make(map[string]Entry)
 	for _, d := range dirs {
 		if !d.IsDir() {
@@ -75,6 +100,7 @@ func Scan(projectsDir string, perProject int, maxAge time.Duration) ([]Entry, er
 		type candidate struct {
 			name string
 			mod  time.Time
+			size int64
 		}
 		var cands []candidate
 		for _, f := range files {
@@ -85,7 +111,7 @@ func Scan(projectsDir string, perProject int, maxAge time.Duration) ([]Entry, er
 			if err != nil || info.Size() == 0 || info.ModTime().Before(cutoff) {
 				continue
 			}
-			cands = append(cands, candidate{f.Name(), info.ModTime()})
+			cands = append(cands, candidate{f.Name(), info.ModTime(), info.Size()})
 		}
 		sort.Slice(cands, func(a, b int) bool { return cands[a].mod.After(cands[b].mod) })
 		if perProject > 0 && len(cands) > perProject {
@@ -93,22 +119,28 @@ func Scan(projectsDir string, perProject int, maxAge time.Duration) ([]Entry, er
 		}
 		for _, c := range cands {
 			path := filepath.Join(dir, c.name)
-			head, err := readHead(path)
-			if err != nil || head.cwd == "" {
+			seen[path] = true
+			sum, ok := s.summarize(path, c.mod, c.size)
+			if !ok || sum.cwd == "" {
 				continue
 			}
 			e := Entry{
 				ID:         strings.TrimSuffix(c.name, ".jsonl"),
 				Dir:        d.Name(),
-				CWD:        head.cwd,
-				Title:      head.title(),
-				LastPrompt: head.lastPrompt,
+				CWD:        sum.cwd,
+				Title:      sum.title(),
+				LastPrompt: sum.lastPrompt,
 				Updated:    c.mod,
 				Path:       path,
 			}
 			if prev, ok := byID[e.ID]; !ok || e.Updated.After(prev.Updated) {
 				byID[e.ID] = e
 			}
+		}
+	}
+	for path := range s.cache {
+		if !seen[path] {
+			delete(s.cache, path)
 		}
 	}
 
@@ -125,17 +157,31 @@ func Scan(projectsDir string, perProject int, maxAge time.Duration) ([]Entry, er
 	return out, nil
 }
 
-// head is what the first lines of a transcript tell about the session.
-type head struct {
+// summarize returns what a transcript says about its session, from the cache when the file
+// did not change.
+func (s *Scanner) summarize(path string, mod time.Time, size int64) (summary, bool) {
+	if c, ok := s.cache[path]; ok && c.mod.Equal(mod) && c.size == size {
+		return c.summary, true
+	}
+	sum, err := readSummary(path, size)
+	if err != nil {
+		return summary{}, false
+	}
+	s.cache[path] = cachedSummary{mod: mod, size: size, summary: sum}
+	return sum, true
+}
+
+// summary is what a transcript tells about its session.
+type summary struct {
 	cwd         string
 	customTitle string
 	firstPrompt string
 	lastPrompt  string
 }
 
-// title picks the display title: the custom title, else the first prompt, else the id-less
+// title picks the display title: the custom title, else the first prompt, else a
 // placeholder.
-func (h head) title() string {
+func (h summary) title() string {
 	if h.customTitle != "" {
 		return Shorten(h.customTitle, 48)
 	}
@@ -145,18 +191,35 @@ func (h head) title() string {
 	return "(untitled)"
 }
 
-// headLines bounds how much of a transcript is read: the title, mode and first prompt are
-// within the first few entries, and the files can be very large.
+// headLines bounds how much of the beginning of a transcript is read: the working
+// directory and the first prompt are within the first few entries.
 const headLines = 80
 
-// readHead parses the beginning of a transcript.
-func readHead(path string) (head, error) {
+// tailBytes is how much of the end of a transcript is read for the latest custom title
+// (/rename appends one) and the latest prompt. Transcripts can be very large.
+const tailBytes = 256 * 1024
+
+// readSummary parses the beginning and the end of a transcript.
+func readSummary(path string, size int64) (summary, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return head{}, err
+		return summary{}, err
 	}
 	defer f.Close()
-	return ParseHead(f), nil
+	sum := ParseHead(f)
+	start := size - tailBytes
+	if start < 0 {
+		start = 0
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return sum, nil
+	}
+	tail, err := io.ReadAll(io.LimitReader(f, tailBytes))
+	if err != nil {
+		return sum, nil
+	}
+	parseTail(tail, &sum)
+	return sum, nil
 }
 
 // transcriptLine is the subset of a transcript entry that matters here.
@@ -169,9 +232,9 @@ type transcriptLine struct {
 	Message     json.RawMessage `json:"message"`
 }
 
-// ParseHead reads up to headLines entries from a transcript.
-func ParseHead(r io.Reader) head {
-	var h head
+// ParseHead reads up to headLines entries from the beginning of a transcript.
+func ParseHead(r io.Reader) summary {
+	var h summary
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for i := 0; i < headLines && sc.Scan(); i++ {
@@ -199,6 +262,30 @@ func ParseHead(r io.Reader) head {
 		}
 	}
 	return h
+}
+
+// parseTail updates the summary with the latest custom title and prompt found in the end of
+// a transcript. The first line may be cut and is skipped when it does not parse.
+func parseTail(tail []byte, sum *summary) {
+	for _, raw := range bytes.Split(tail, []byte("\n")) {
+		if !bytes.Contains(raw, []byte(`"custom-title"`)) && !bytes.Contains(raw, []byte(`"last-prompt"`)) {
+			continue
+		}
+		var line transcriptLine
+		if err := json.Unmarshal(raw, &line); err != nil {
+			continue
+		}
+		switch line.Type {
+		case "custom-title":
+			if t := strings.TrimSpace(line.CustomTitle); t != "" {
+				sum.customTitle = t
+			}
+		case "last-prompt":
+			if p := CleanPrompt(line.LastPrompt); p != "" {
+				sum.lastPrompt = p
+			}
+		}
+	}
 }
 
 // messageText extracts the text of a user message: either a string or a list of content
@@ -234,16 +321,18 @@ func messageText(raw json.RawMessage) string {
 }
 
 var (
-	systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
-	xmlTag         = regexp.MustCompile(`(?s)<[a-zA-Z][^>]*>.*?</[a-zA-Z][^>]*>|<[^>]+>`)
-	whitespace     = regexp.MustCompile(`\s+`)
+	// hiddenBlocks are wrappers whose content is not what the user typed.
+	hiddenBlocks = regexp.MustCompile(`(?s)<(system-reminder|command-message|local-command-[a-z-]+)>.*?</(system-reminder|command-message|local-command-[a-z-]+)>`)
+	anyTag       = regexp.MustCompile(`<[^>]+>`)
+	whitespace   = regexp.MustCompile(`\s+`)
 )
 
-// CleanPrompt strips the markup Claude Code wraps around prompts (system reminders, command
-// tags) and collapses whitespace.
+// CleanPrompt strips the markup Claude Code wraps around prompts: system reminders and
+// command echoes go, other tags (pasted content, slash command name and arguments) keep
+// their text. Whitespace is collapsed.
 func CleanPrompt(s string) string {
-	s = systemReminder.ReplaceAllString(s, " ")
-	s = xmlTag.ReplaceAllString(s, " ")
+	s = hiddenBlocks.ReplaceAllString(s, " ")
+	s = anyTag.ReplaceAllString(s, " ")
 	return strings.TrimSpace(whitespace.ReplaceAllString(s, " "))
 }
 

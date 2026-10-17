@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -379,4 +380,21 @@ func TestDrawerSidebarDefaultsToOn(t *testing.T) {
 	assert.True(t, (&Config{}).DrawerSidebar())
 	off := false
 	assert.False(t, (&Config{SidebarDrawer: &off}).DrawerSidebar())
+}
+
+func TestHistoryDefaultsListEverything(t *testing.T) {
+	assert.Equal(t, 0, (&Config{}).GetHistoryLimit())
+	assert.Equal(t, time.Duration(0), (&Config{}).GetHistoryMaxAge())
+	assert.Equal(t, 5, (&Config{HistoryLimit: 5}).GetHistoryLimit())
+	assert.Equal(t, 48*time.Hour, (&Config{HistoryDays: 2}).GetHistoryMaxAge())
+}
+
+func TestGroupFor(t *testing.T) {
+	cfg := &Config{ProjectsRoot: "/p"}
+	assert.Equal(t, "Fawri", cfg.GroupFor("/p/Fawri/Code/Api"))
+	cfg.GroupBy = GroupByFolder
+	assert.Equal(t, "", cfg.GroupFor("/p/Fawri/Code/Api"), "folder mode ignores the project rules")
+	assert.Equal(t, DefaultGroupLabelSegments, cfg.GetGroupLabelSegments())
+	cfg.GroupLabelSegments = 1
+	assert.Equal(t, 1, cfg.GetGroupLabelSegments())
 }
