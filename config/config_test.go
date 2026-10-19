@@ -398,3 +398,10 @@ func TestGroupFor(t *testing.T) {
 	cfg.GroupLabelSegments = 1
 	assert.Equal(t, 1, cfg.GetGroupLabelSegments())
 }
+
+func TestIsScratchpad(t *testing.T) {
+	assert.True(t, IsScratchpad("/mnt/c/Users/me/AppData/Local/Temp/claude/C--Users-me-Projects-AIStudio/8d0439a2-612d-47d1-b107-5b1f3b4884b3/scratchpad/pii-e2e"))
+	assert.True(t, IsScratchpad(`C:\Users\me\AppData\Local\Temp\claude\C--x\25f45801-5252-4e2f-8530-009495325b63\scratchpad`))
+	assert.False(t, IsScratchpad("/mnt/c/Users/me/Projects/scratchpad"), "a folder merely named scratchpad")
+	assert.False(t, IsScratchpad("/mnt/c/Users/me/Projects/AIStudio"))
+}

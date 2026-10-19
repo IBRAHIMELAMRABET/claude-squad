@@ -96,7 +96,8 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 	wanted := make(map[string]history.Entry, len(entries))
 	for _, e := range entries {
 		cwd := config.NormalizePath(e.CWD)
-		if live[e.ID] || m.appConfig.HistoryIgnored(cwd) || !dirExists(cwd) {
+		if live[e.ID] || m.appConfig.HistoryIgnored(cwd) || !dirExists(cwd) ||
+			(!m.appConfig.ShowScratchpadSessions && config.IsScratchpad(cwd)) {
 			continue // a session cannot be resumed where its directory is gone
 		}
 		e.CWD = cwd

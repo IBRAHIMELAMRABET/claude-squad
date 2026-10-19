@@ -215,7 +215,8 @@ All of these are optional; without them the fork behaves like upstream plus grou
 | `history_days` | `0` | Hide past sessions older than this many days; `0` lists them all. |
 | `group_by` | `"project"` | `"folder"` always groups sessions by folder, like a session browser, ignoring `projects` and `projects_root` for grouping (they still feed the repository picker). |
 | `group_label_segments` | `3` | How many trailing path segments name a folder group, e.g. `CMIBills/Code/Backend`. |
-| `history_ignore` | `["/AppData/Local/Temp/", "/tmp/"]` | Directory fragments whose sessions are hidden. |
+| `history_ignore` | `[]` | Directory fragments whose sessions are hidden. |
+| `show_scratchpad_sessions` | `false` | Also list sessions recorded in Claude Code scratchpad folders, which agents and tests start from inside another session. |
 | `notifications` | `{"bell": true, "title": true}` | Ring the terminal bell when a session starts waiting, and keep the waiting count in the window title. |
 | `disable_adopt` | `false` | Do not list agent sessions running in tmux sessions `cs` did not create. |
 | `adopt_programs` | `["claude"]` | Foreground program names that qualify a foreign tmux pane for adoption. |

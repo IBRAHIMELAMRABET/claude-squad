@@ -94,6 +94,9 @@ type Config struct {
 	// HistoryDays hides past sessions older than this many days. Zero (the default) lists
 	// them all.
 	HistoryDays int `json:"history_days,omitempty"`
+	// ShowScratchpadSessions also lists sessions recorded in Claude Code scratchpad folders,
+	// which agents and tests started from inside another session. Hidden by default.
+	ShowScratchpadSessions bool `json:"show_scratchpad_sessions,omitempty"`
 	// HistoryIgnore lists path fragments; past sessions whose directory contains one are
 	// not listed, e.g. ["/AppData/Local/Temp/", "/tmp/"]. Empty by default.
 	HistoryIgnore []string `json:"history_ignore,omitempty"`
@@ -141,6 +144,16 @@ func (c *Config) GetGroupLabelSegments() int {
 
 // DefaultHistoryIgnore hides nothing: every session is listed, like a session browser does.
 var DefaultHistoryIgnore []string
+
+// scratchpadPath matches the private scratchpad folders Claude Code gives a session
+// (<temp>/claude/<project>/<session id>/scratchpad/...): sessions recorded there were started
+// by an agent or a test inside another session, not by the user.
+var scratchpadPath = regexp.MustCompile(`(?i)/claude/[^/]+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/scratchpad(/|$)`)
+
+// IsScratchpad reports whether dir lies in a Claude Code session scratchpad.
+func IsScratchpad(dir string) bool {
+	return scratchpadPath.MatchString(strings.ReplaceAll(filepath.ToSlash(dir), `\`, "/"))
+}
 
 // HistoryIgnored reports whether a past session recorded in dir should be hidden.
 func (c *Config) HistoryIgnored(dir string) bool {
