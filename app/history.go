@@ -207,6 +207,8 @@ func (m *home) resumeArchived(archived *session.Instance) tea.Cmd {
 	if limit := m.appConfig.GetMaxInstances(); m.runningCount() >= limit {
 		return m.handleError(fmt.Errorf("you can't create more than %d instances", limit))
 	}
+	// The past row goes first, so its title is free for the resumed session.
+	m.list.Remove(archived)
 	fresh, err := session.NewInstance(session.InstanceOptions{
 		Title:    m.uniqueTitle(sessionTitle(archived.Title)),
 		Path:     archived.Path,
@@ -214,12 +216,12 @@ func (m *home) resumeArchived(archived *session.Instance) tea.Cmd {
 		ResumeID: archived.ResumeID,
 	})
 	if err != nil {
+		m.list.AddInstance(archived)()
 		return m.handleError(err)
 	}
 	fresh.Project = archived.Project
 	fresh.Summary = archived.Summary
 
-	m.list.Remove(archived)
 	m.newInstanceFinalizer = m.list.AddInstance(fresh)
 	fresh.SetStatus(session.Loading)
 	m.newInstanceFinalizer()

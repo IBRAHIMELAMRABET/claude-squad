@@ -204,7 +204,17 @@ func newHome(ctx context.Context, program string, autoYes bool) *home {
 		os.Exit(1)
 	}
 
-	// Add loaded instances to the list
+	// Add loaded instances to the list. A session that ran in place and is now paused had its
+	// program exit (in-place sessions cannot be paused otherwise): it is listed again from
+	// its transcript instead.
+	kept := instances[:0]
+	for _, instance := range instances {
+		if instance.InPlace && instance.Paused() {
+			continue
+		}
+		kept = append(kept, instance)
+	}
+	instances = kept
 	for _, instance := range instances {
 		instance.Project = appConfig.GroupFor(instance.ProjectPath())
 		// Call the finalizer immediately.
@@ -458,9 +468,17 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(tea.WindowSize(), m.instanceChanged())
 	case metadataUpdateDoneMsg:
 		newlyWaiting := 0
+		ended := false
 		for _, r := range msg.results {
 			// Skip instances that were paused while metadata was being computed
 			if r.instance.Status == session.Paused {
+				continue
+			}
+			// A session running in place whose program exited has nothing left to keep: drop
+			// it, and its transcript is listed again as a past session to resume.
+			if r.gone && r.instance.InPlace && !r.instance.Adopted {
+				m.list.Remove(r.instance)
+				ended = true
 				continue
 			}
 			wasWaiting := r.instance.NeedsAttention()
@@ -477,10 +495,18 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				r.instance.SetDiffStats(r.diffStats)
 			}
 		}
-		return m, tea.Batch(
+		cmds := []tea.Cmd{
 			m.notify(newlyWaiting, m.list.WaitingCount()),
 			tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir),
-		)
+		}
+		if ended {
+			if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
+				log.WarningLog.Printf("could not save instances: %v", err)
+			}
+			// Rescan now so the ended session reappears as a past one without waiting.
+			cmds = append(cmds, m.instanceChanged(), m.scanHistoryCmd(0))
+		}
+		return m, tea.Batch(cmds...)
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
 	case branchSearchDebounceMsg:
@@ -1263,6 +1289,12 @@ func (m *home) handleSidebarKey(name keys.KeyName) (bool, tea.Cmd) {
 		if selected != nil && selected.Archived {
 			return true, m.resumeArchived(selected)
 		}
+		if selected != nil && selected.Paused() && !selected.Adopted {
+			if err := selected.Resume(); err != nil {
+				return true, m.handleError(err)
+			}
+			return true, m.focusSession()
+		}
 		if selected == nil || selected.Paused() || selected.Status == session.Loading || !selected.Started() {
 			return true, nil
 		}
@@ -1490,8 +1522,10 @@ func (m *home) runBranchSearch(filter string, version uint64) tea.Cmd {
 type instanceMetaResult struct {
 	instance    *session.Instance
 	observation tmux.Observation
-	hook        *hooks.Status
-	diffStats   *git.DiffStats
+	// gone is true when the instance's tmux session no longer exists (its program exited).
+	gone      bool
+	hook      *hooks.Status
+	diffStats *git.DiffStats
 }
 
 // metadataUpdateDoneMsg is sent when the background metadata update completes.
@@ -1553,6 +1587,7 @@ func tickUpdateMetadataCmd(active []*session.Instance, selected *session.Instanc
 				r := &results[i]
 				r.instance = instance
 				r.observation = instance.Observe()
+				r.gone = !instance.TmuxAlive()
 				if statusDir != "" {
 					if st, ok := hooks.Read(statusDir, instance.PaneID()); ok {
 						r.hook = &st

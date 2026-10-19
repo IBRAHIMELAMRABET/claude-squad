@@ -860,3 +860,32 @@ func TestMouseInSidebar(t *testing.T) {
 	h.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 5, Y: rowY})
 	require.Equal(t, "a1", h.list.GetSelectedInstance().Title, "clicking a row selects it")
 }
+
+// When the program of a session running in place exits, the session leaves the list (its
+// transcript comes back as a past session); a worktree session would be kept, paused.
+func TestEndedInPlaceSessionLeavesTheList(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	h := &home{
+		ctx:          context.Background(),
+		appConfig:    &config.Config{DisableHistory: true},
+		appState:     config.DefaultState(),
+		list:         ui.NewList(&spinner, false),
+		menu:         ui.NewMenu(),
+		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
+		errBox:       ui.NewErrBox(),
+		storage:      newTestStorage(t),
+	}
+	inplace, err := session.NewInstance(session.InstanceOptions{Title: "here", Path: t.TempDir(), Program: "claude", ResumeID: "abc"})
+	require.NoError(t, err)
+	worktree, err := session.NewInstance(session.InstanceOptions{Title: "wt", Path: t.TempDir(), Program: "claude"})
+	require.NoError(t, err)
+	h.list.AddInstance(inplace)()
+	h.list.AddInstance(worktree)()
+
+	h.Update(metadataUpdateDoneMsg{results: []instanceMetaResult{
+		{instance: inplace, gone: true},
+		{instance: worktree, gone: true},
+	}})
+	require.Equal(t, []*session.Instance{worktree}, h.list.GetInstances())
+}
