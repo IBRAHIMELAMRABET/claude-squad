@@ -195,7 +195,7 @@ func (m *Menu) emptyOptions() []keys.KeyName {
 	if !m.sidebar {
 		return defaultMenuOptions
 	}
-	return []keys.KeyName{keys.KeyNew, keys.KeyPrompt, keys.KeyCollapse, keys.KeyNextWaiting,
+	return []keys.KeyName{keys.KeyNew, keys.KeyPrompt, keys.KeySidebarHint, keys.KeyCollapse, keys.KeyNextWaiting,
 		keys.KeyActiveOnly, keys.KeySearch, keys.KeyHelp, keys.KeyQuit}
 }
 
@@ -203,8 +203,8 @@ func (m *Menu) emptyOptions() []keys.KeyName {
 func (m *Menu) sidebarOptions() []keys.KeyName {
 	options := []keys.KeyName{keys.KeyNew, keys.KeyPrompt}
 	if m.instance.Archived {
-		return append(options, keys.KeyResumeHistory, keys.KeyCollapse, keys.KeyNextWaiting, keys.KeyActiveOnly,
-			keys.KeySearch, keys.KeyZoom, keys.KeyHelp, keys.KeyQuit)
+		return append(options, keys.KeyResumeHistory, keys.KeySidebarHint, keys.KeyCollapse, keys.KeyNextWaiting,
+			keys.KeyActiveOnly, keys.KeySearch, keys.KeyHelp, keys.KeyQuit)
 	}
 	if !m.instance.Adopted {
 		options = append(options, keys.KeyKill)
@@ -218,8 +218,8 @@ func (m *Menu) sidebarOptions() []keys.KeyName {
 		}
 		options = append(options, keys.KeySubmit)
 	}
-	return append(options, keys.KeyNextWaiting, keys.KeyActiveOnly, keys.KeySearch,
-		keys.KeyCollapse, keys.KeyZoom, keys.KeyHelp, keys.KeyQuit)
+	return append(options, keys.KeySidebarHint, keys.KeyNextWaiting, keys.KeyActiveOnly, keys.KeySearch,
+		keys.KeyCollapse, keys.KeyHelp, keys.KeyQuit)
 }
 
 // shortHelp holds shorter descriptions used by the narrow sidebar menu.

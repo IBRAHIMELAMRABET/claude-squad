@@ -117,7 +117,12 @@ func TestShowTextWritesCard(t *testing.T) {
 
 func TestKeyBindings(t *testing.T) {
 	b := KeyBindings(true)
-	require.Len(t, b, 2)
+	require.Len(t, b, 3)
+	require.Equal(t, "M-s", b[0][2], "Alt+S toggles the list")
+	require.Equal(t, "select-pane -t =claudesquad_ui:0.1 ; resize-pane -Z -t =claudesquad_ui:0.1", b[0][6], "from the list: back to the session")
+	require.Contains(t, b[0][7], "select-layout", "elsewhere in the layout: show the list")
+	require.Contains(t, b[0][7], "send-keys M-s", "outside the layout the key reaches the program")
+	b = b[1:]
 	require.Equal(t, []string{"bind-key", "-n", "M-Left", "if-shell", "-F", "#{==:#{session_name},claudesquad_ui}",
 		"select-pane -t =claudesquad_ui:0.0 ; select-layout -t =claudesquad_ui:0 main-vertical", "send-keys M-Left"}, b[0])
 	require.Equal(t, "M-Right", b[1][2])
@@ -125,7 +130,7 @@ func TestKeyBindings(t *testing.T) {
 	require.Equal(t, "select-pane -t =claudesquad_ui:0.1 ; resize-pane -Z -t =claudesquad_ui:0.1", b[1][6], "back to the session, zoomed")
 	require.Equal(t, "send-keys M-Right", b[1][7], "inside the session the key reaches the program")
 
-	require.Equal(t, "select-pane -t =claudesquad_ui:0.1", KeyBindings(false)[1][6], "no zoom without the drawer")
+	require.Equal(t, "select-pane -t =claudesquad_ui:0.1", KeyBindings(false)[2][6], "no zoom without the drawer")
 }
 
 func TestTrueColorTerminal(t *testing.T) {

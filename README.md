@@ -92,10 +92,9 @@ mouse, scrollback and cursor, while the list stays visible.
 - Moving in the list shows that session on the right; `↵` moves the cursor into it and, by
   default, zooms it to the full window so Claude looks exactly as it does on its own
   (`sidebar_drawer`). `cs` always opens on the list.
-- `Alt-←` brings the list back (and unzooms); `Alt-→` from the list returns to the session as
-  it was, zoomed. Inside the session `Alt-→` reaches Claude unchanged.
-- A filter bar at the top shows **All**, **Active** (running, idle or waiting) and **Waiting**
-  with their counts; `a` cycles through them and a click selects one.
+- `Alt-S` hides the list and returns to the session full width, as you left it; pressed in
+  the session, it shows the list again. (`Alt-←` / `Alt-→` do the same in terminals that pass
+  them through; Windows Terminal keeps them for its own panes.)
 - The cursor also stops on group headers: `space`, `↵` or `←`/`→` fold and unfold the group,
   and a click on a header does the same. Moving over a header leaves the session pane as is.
 - When the terminal renders 24-bit colour (Windows Terminal, VS Code, iTerm2, WezTerm, or

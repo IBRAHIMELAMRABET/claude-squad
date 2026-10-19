@@ -55,6 +55,8 @@ const (
 
 	KeyResumeHistory // enter on a past session: resume it with claude --resume.
 
+	KeySidebarHint // Alt+S: shown in the menu only; tmux handles the key.
+
 	KeyCollapse // left: fold the group under the cursor.
 	KeyExpand   // right: unfold the group under the cursor, or enter it.
 )
@@ -203,6 +205,10 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyResumeHistory: key.NewBinding(
 		key.WithKeys("enter", "o"),
 		key.WithHelp("↵", "resume"),
+	),
+	KeySidebarHint: key.NewBinding(
+		key.WithKeys("alt+s"),
+		key.WithHelp("alt+s", "hide list"),
 	),
 	KeyCollapse: key.NewBinding(
 		key.WithKeys("left"),

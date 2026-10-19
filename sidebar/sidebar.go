@@ -231,7 +231,12 @@ func KeyBindings(drawer bool) [][]string {
 	// Coming back to the list also re-applies the layout, which restores the sidebar width
 	// after a terminal resize scaled it while the session was zoomed.
 	toList := "select-pane -t =" + UISession + ":0.0 ; select-layout -t =" + UISession + ":0 main-vertical"
+	// Alt+S toggles: from the list it goes back to the session, anywhere else in the layout
+	// it shows the list. Windows Terminal keeps Alt+arrows for its own panes, so Alt+S is the
+	// key that works everywhere; the Alt+arrows stay for terminals that pass them through.
+	toggle := "if-shell -F '" + inUI + "' '" + toList + "' 'send-keys M-s'"
 	return [][]string{
+		{"bind-key", "-n", "M-s", "if-shell", "-F", onList, back, toggle},
 		{"bind-key", "-n", "M-Left", "if-shell", "-F", inUI, toList, "send-keys M-Left"},
 		{"bind-key", "-n", "M-Right", "if-shell", "-F", onList, back, "send-keys M-Right"},
 	}
@@ -271,7 +276,7 @@ func AttachScript(sessionName string) string {
 // PlaceholderScript shows a hint and waits.
 func PlaceholderScript() string {
 	return "clear\n" +
-		"printf '\\n\\n   No session selected.\\n\\n   Pick one on the left, or press n to create one.\\n'\n" +
+		"printf '\\n\\n   No session selected.\\n\\n   Pick one on the left, or press n to create one.\\n   Alt+S shows or hides the list.\\n'\n" +
 		"while :; do sleep 3600; done\n"
 }
 

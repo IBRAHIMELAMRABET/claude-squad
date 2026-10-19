@@ -148,7 +148,7 @@ func sidebarHelp() string {
 		"",
 		headerStyle.Render("Sidebar layout:"),
 		keyStyle.Render("↵/o")+descStyle.Render("       - Show the selected session here and move into it"),
-		keyStyle.Render("Alt-←/→")+descStyle.Render("   - Move between the list and the session"),
+		keyStyle.Render("Alt-S")+descStyle.Render("     - Hide the list (back to the session full width) or show it"),
 		keyStyle.Render("tab")+descStyle.Render("       - Show the session's diff here (q returns to the session)"),
 		keyStyle.Render("t")+descStyle.Render("         - Open a shell in the session's directory (exit returns)"),
 		keyStyle.Render("z")+descStyle.Render("         - Zoom the session to the full window, and back"),

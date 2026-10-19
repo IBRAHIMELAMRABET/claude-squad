@@ -27,7 +27,7 @@ func TestCompactMenuWrapsToWidth(t *testing.T) {
 	}
 	require.Contains(t, out, "focus")
 	require.Contains(t, out, "diff")
-	require.Contains(t, out, "zoom")
+	require.Contains(t, out, "alt+s hide list", "the sidebar toggle is shown")
 	require.NotContains(t, out, "switch tab", "classic labels are not used in the sidebar")
 }
 
