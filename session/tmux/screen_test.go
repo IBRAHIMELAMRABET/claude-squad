@@ -71,3 +71,8 @@ func TestScreenStateString(t *testing.T) {
 	require.Equal(t, "working", ScreenWorking.String())
 	require.Equal(t, "unknown", ScreenUnknown.String())
 }
+
+func TestWindowsClaudeIsClassified(t *testing.T) {
+	require.True(t, IsClaudeProgram("/mnt/c/Users/me/.local/bin/claude.exe --resume x"))
+	require.Equal(t, ScreenIdle, classifyScreen("/mnt/c/Users/me/.local/bin/claude.exe", fixture(t, "idle.txt")))
+}

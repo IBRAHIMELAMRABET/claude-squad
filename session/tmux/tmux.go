@@ -156,7 +156,7 @@ func (t *TmuxSession) CheckAndHandleTrustPrompt() bool {
 		return false
 	}
 
-	if strings.HasSuffix(t.program, ProgramClaude) {
+	if IsClaudeProgram(t.program) {
 		// Claude Code has used several wordings for its folder trust screen; the current one
 		// asks "Is this a project you created or one you trust?" with "Yes, I trust this folder".
 		if strings.Contains(content, "Do you trust the files in this folder?") ||

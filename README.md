@@ -260,6 +260,15 @@ Without hooks, `cs` falls back to reading Claude's screen: "esc to interrupt" me
 its permission and selection dialogs mean waiting, "? for shortcuts" means idle. That fallback
 depends on Claude Code's wording and may lag behind new Claude versions.
 
+#### Running under WSL with Windows Claude
+
+When Claude Code is installed on Windows, set `default_program` to the Windows binary, for
+example `/mnt/c/Users/<you>/.local/bin/claude.exe`. `cs` then runs the real Windows Claude in
+its panes through WSL interop: same settings, plugins, hooks, theme and transcripts as in a
+PowerShell tab, and sessions recorded on Windows resume natively. Such sessions get only
+`--resume` (no hooks file, no `claude_args`, whose paths would mean nothing on Windows), so
+their status comes from the screen, and their transcript is matched by folder and start time.
+
 #### Running under WSL
 
 tmux lives inside the WSL distribution. When no WSL terminal stays open, Windows stops the

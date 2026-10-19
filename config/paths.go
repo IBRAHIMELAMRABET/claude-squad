@@ -21,9 +21,25 @@ func NormalizePath(p string) string {
 	})
 }
 
+// wslSharePath matches a path into a WSL distribution as Windows sees it, such as
+// `\\wsl.localhost\Ubuntu\home\me\repo` or `\\wsl$\Ubuntu\home\me\repo`.
+var wslSharePath = regexp.MustCompile(`(?i)^[\\/]{2}wsl(?:\.localhost|\$)[\\/]([^\\/]+)(.*)$`)
+
 // normalizePath is NormalizePath with the platform and mount check injected for tests.
 func normalizePath(p, goos string, mountExists func(string) bool) string {
 	if goos == "windows" {
+		return p
+	}
+	// A path into this distribution recorded by a Windows program (the Windows claude.exe
+	// started in a WSL directory) is the Linux path it points to.
+	if m := wslSharePath.FindStringSubmatch(p); m != nil {
+		if distro := os.Getenv("WSL_DISTRO_NAME"); distro == "" || strings.EqualFold(distro, m[1]) {
+			rest := strings.ReplaceAll(m[2], `\`, "/")
+			if rest == "" {
+				rest = "/"
+			}
+			return filepath.Clean(rest)
+		}
 		return p
 	}
 	m := windowsDrivePath.FindStringSubmatch(p)

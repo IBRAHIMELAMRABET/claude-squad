@@ -79,6 +79,7 @@ func (m *home) scanHistoryCmd(delay time.Duration) tea.Cmd {
 // entries under ignored directories are left out; vanished ones are removed; existing rows
 // are refreshed. It reports whether the list changed.
 func (m *home) reconcileHistory(entries []history.Entry) bool {
+	m.claimTranscripts(entries)
 	live := make(map[string]bool)
 	for _, inst := range m.list.GetInstances() {
 		if inst.Archived {
@@ -139,6 +140,52 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 var dirExists = func(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// claimTranscripts links running sessions whose Claude session id is unknown (no hooks, as
+// with the Windows claude.exe, or adopted ones) to their transcript, so it is not listed a
+// second time as a past session: the newest transcript recorded in the session's directory
+// since it started (any time, for adopted sessions) that no other session claims.
+func (m *home) claimTranscripts(entries []history.Entry) {
+	claimed := make(map[string]bool)
+	var unknown []*session.Instance
+	for _, inst := range m.list.GetInstances() {
+		if inst.Archived {
+			continue
+		}
+		switch {
+		case inst.ResumeID != "":
+			claimed[inst.ResumeID] = true
+		case inst.ClaudeSessionID != "":
+			claimed[inst.ClaudeSessionID] = true
+		case inst.Started() && !inst.Paused():
+			unknown = append(unknown, inst)
+		}
+	}
+	for _, inst := range unknown {
+		dir := config.NormalizePath(inst.WorkDir())
+		if dir == "" {
+			continue
+		}
+		since := inst.CreatedAt.Add(-time.Minute)
+		var best *history.Entry
+		for idx := range entries {
+			e := &entries[idx]
+			if claimed[e.ID] || config.NormalizePath(e.CWD) != dir {
+				continue
+			}
+			if !inst.Adopted && e.Updated.Before(since) {
+				continue
+			}
+			if best == nil || e.Updated.After(best.Updated) {
+				best = e
+			}
+		}
+		if best != nil {
+			inst.ClaudeSessionID = best.ID
+			claimed[best.ID] = true
+		}
+	}
 }
 
 // runningCount is the number of sessions that count against max_instances: everything

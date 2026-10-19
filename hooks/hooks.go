@@ -217,16 +217,28 @@ func EnsureSettings(execPath string, extra json.RawMessage) (string, error) {
 	return path, nil
 }
 
-// IsClaude reports whether a program string launches Claude Code.
+// IsClaude reports whether a program string launches Claude Code: the Linux claude, or the
+// Windows claude.exe run through WSL interop.
 func IsClaude(program string) bool {
 	fields := strings.Fields(program)
-	return len(fields) > 0 && filepath.Base(fields[0]) == "claude"
+	if len(fields) == 0 {
+		return false
+	}
+	name := filepath.Base(fields[0])
+	return name == "claude" || name == "claude.exe"
+}
+
+// IsWindowsProgram reports whether a program string launches a Windows executable (run
+// through WSL interop).
+func IsWindowsProgram(program string) bool {
+	fields := strings.Fields(program)
+	return len(fields) > 0 && strings.HasSuffix(strings.ToLower(fields[0]), ".exe")
 }
 
 // LaunchArgs returns the arguments to append to a claude program so its hook events reach
 // cs, or "" when the program is not claude or already carries its own --settings.
 func LaunchArgs(program, settingsPath string) string {
-	if !IsClaude(program) || strings.Contains(program, "--settings") {
+	if !IsClaude(program) || IsWindowsProgram(program) || strings.Contains(program, "--settings") {
 		return ""
 	}
 	return " --settings " + shellQuote(settingsPath)

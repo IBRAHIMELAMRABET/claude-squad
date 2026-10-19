@@ -175,3 +175,11 @@ func TestSettingsMergesExtraWithoutTouchingHooks(t *testing.T) {
 	_, err = Settings("cs hook", json.RawMessage(`[1,2]`))
 	require.Error(t, err, "claude_settings must be an object")
 }
+
+func TestWindowsClaude(t *testing.T) {
+	exe := "/mnt/c/Users/me/.local/bin/claude.exe"
+	require.True(t, IsClaude(exe))
+	require.True(t, IsWindowsProgram(exe))
+	require.False(t, IsWindowsProgram("/home/me/.local/bin/claude"))
+	require.Equal(t, "", LaunchArgs(exe, "/h/hooks.json"), "a Linux settings path means nothing to claude.exe")
+}

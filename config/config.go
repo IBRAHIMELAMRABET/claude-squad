@@ -95,7 +95,7 @@ type Config struct {
 	// them all.
 	HistoryDays int `json:"history_days,omitempty"`
 	// HistoryIgnore lists path fragments; past sessions whose directory contains one are
-	// not listed. Omitted means DefaultHistoryIgnore (temporary and scratch folders).
+	// not listed, e.g. ["/AppData/Local/Temp/", "/tmp/"]. Empty by default.
 	HistoryIgnore []string `json:"history_ignore,omitempty"`
 	// GroupBy chooses how sessions are grouped: GroupByProject (default: the projects and
 	// projects_root rules, folders otherwise) or GroupByFolder (always by folder, like a
@@ -139,8 +139,8 @@ func (c *Config) GetGroupLabelSegments() int {
 	return c.GroupLabelSegments
 }
 
-// DefaultHistoryIgnore hides sessions that ran in temporary folders.
-var DefaultHistoryIgnore = []string{"/AppData/Local/Temp/", "/tmp/"}
+// DefaultHistoryIgnore hides nothing: every session is listed, like a session browser does.
+var DefaultHistoryIgnore []string
 
 // HistoryIgnored reports whether a past session recorded in dir should be hidden.
 func (c *Config) HistoryIgnored(dir string) bool {

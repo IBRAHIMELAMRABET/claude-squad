@@ -284,6 +284,12 @@ func (i *Instance) launchProgram() string {
 		return i.Program
 	}
 	cfg := config.LoadConfig()
+	if hooks.IsWindowsProgram(i.Program) {
+		// The Windows claude.exe, run through WSL interop, reads the Windows config exactly as
+		// in a PowerShell tab; paths on this side (hooks file, plugin folders) mean nothing to
+		// it, so it only gets --resume. Its status comes from the screen.
+		return i.resumeArgs(i.Program)
+	}
 	program := i.resumeArgs(i.Program) + extraArgs(cfg.ClaudeArgs)
 	if cfg.DisableHooks {
 		return program
@@ -704,7 +710,7 @@ func (i *Instance) CheckAndHandleTrustPrompt() bool {
 		return false
 	}
 	program := i.Program
-	if !strings.HasSuffix(program, tmux.ProgramClaude) &&
+	if !tmux.IsClaudeProgram(program) &&
 		!strings.HasSuffix(program, tmux.ProgramAider) &&
 		!strings.HasSuffix(program, tmux.ProgramGemini) {
 		return false

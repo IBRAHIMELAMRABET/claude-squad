@@ -96,11 +96,18 @@ func programName(program string) string {
 	return filepath.Base(fields[0])
 }
 
+// IsClaudeProgram reports whether a program string launches Claude Code: the Linux claude,
+// or the Windows claude.exe run through WSL interop.
+func IsClaudeProgram(program string) bool {
+	name := programName(program)
+	return name == ProgramClaude || name == ProgramClaude+".exe"
+}
+
 // classifyScreen classifies pane content for the given program.
 func classifyScreen(program, content string) ScreenState {
 	plain := StripANSI(content)
 	switch name := programName(program); {
-	case name == ProgramClaude:
+	case IsClaudeProgram(program):
 		return ClassifyClaudeScreen(plain)
 	case strings.HasPrefix(name, ProgramAider):
 		if strings.Contains(plain, "(Y)es/(N)o/(D)on't ask again") {

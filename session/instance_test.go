@@ -249,3 +249,10 @@ func TestExtraArgsQuotesAndExpands(t *testing.T) {
 	require.Equal(t, " --plugin-dir "+home+`/mods/guard --append-system-prompt 'be brief; it'\''s fine'`, got)
 	require.Equal(t, "", extraArgs(nil))
 }
+
+// The Windows claude.exe gets --resume and nothing else: no hooks file, no plugin folders.
+func TestLaunchProgramForWindowsClaude(t *testing.T) {
+	inst, err := NewInstance(InstanceOptions{Title: "w", Path: t.TempDir(), Program: "/mnt/c/Users/me/.local/bin/claude.exe", ResumeID: "abc"})
+	require.NoError(t, err)
+	require.Equal(t, "/mnt/c/Users/me/.local/bin/claude.exe --resume abc", inst.launchProgram())
+}

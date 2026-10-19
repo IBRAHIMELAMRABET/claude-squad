@@ -31,6 +31,7 @@ func TestReconcileHistory(t *testing.T) {
 	dirExists = func(string) bool { return true }
 	defer func() { dirExists = func(p string) bool { info, err := os.Stat(p); return err == nil && info.IsDir() } }()
 	h := historyHome(t)
+	h.appConfig.HistoryIgnore = []string{"/AppData/Local/Temp/"}
 	now := time.Now()
 	entries := []history.Entry{
 		{ID: "aaaa", CWD: "/mnt/c/Projects/Fawri/Code/Backend", Title: "fix auth", LastPrompt: "redo the tests", Updated: now},
@@ -39,7 +40,7 @@ func TestReconcileHistory(t *testing.T) {
 	}
 
 	require.True(t, h.reconcileHistory(entries))
-	require.Equal(t, 2, h.list.NumInstances(), "the scratch folder is ignored by default")
+	require.Equal(t, 2, h.list.NumInstances(), "the scratch folder is ignored by history_ignore")
 	var fawri *session.Instance
 	for _, inst := range h.list.GetInstances() {
 		require.True(t, inst.Archived)
@@ -151,14 +152,39 @@ func TestArchivedCard(t *testing.T) {
 	}
 }
 
-func TestHistoryIgnoredDefaults(t *testing.T) {
+func TestHistoryIgnore(t *testing.T) {
 	cfg := &config.Config{}
-	require.True(t, cfg.HistoryIgnored("/mnt/c/Users/me/AppData/Local/Temp/claude/x"))
-	require.True(t, cfg.HistoryIgnored("/tmp/scratch"))
-	require.True(t, cfg.HistoryIgnored("/mnt/c/Users/me/AppData/Local/Temp"), "the folder itself, without a trailing slash")
-	require.False(t, cfg.HistoryIgnored("/mnt/c/Projects/Fawri"))
+	require.False(t, cfg.HistoryIgnored("/mnt/c/Users/me/AppData/Local/Temp/claude/x"), "nothing is hidden by default")
 
-	cfg.HistoryIgnore = []string{"/archive/"}
-	require.False(t, cfg.HistoryIgnored("/tmp/scratch"), "an explicit list replaces the default")
+	cfg.HistoryIgnore = []string{"/AppData/Local/Temp/", "/archive/"}
+	require.True(t, cfg.HistoryIgnored("/mnt/c/Users/me/AppData/Local/Temp/claude/x"))
+	require.True(t, cfg.HistoryIgnored("/mnt/c/Users/me/AppData/Local/Temp"), "the folder itself, without a trailing slash")
 	require.True(t, cfg.HistoryIgnored("/srv/archive/old"))
+	require.False(t, cfg.HistoryIgnored("/mnt/c/Projects/Fawri"))
+}
+
+// A running session without hooks (the Windows claude.exe) claims the transcript written in
+// its directory since it started, so that transcript is not listed again as a past session.
+func TestRunningSessionClaimsItsTranscript(t *testing.T) {
+	dirExists = func(string) bool { return true }
+	defer func() { dirExists = func(p string) bool { info, err := os.Stat(p); return err == nil && info.IsDir() } }()
+	h := historyHome(t)
+	dir := t.TempDir()
+	adopted := session.NewAdoptedInstance(tmux.Pane{Session: "win", ID: "%3", Command: "init", Path: dir})
+	h.list.AddInstance(adopted)()
+
+	now := time.Now()
+	h.reconcileHistory([]history.Entry{
+		{ID: "older", CWD: dir, Title: "older", Updated: now.Add(-time.Hour)},
+		{ID: "mine", CWD: dir, Title: "mine", Updated: now},
+		{ID: "elsewhere", CWD: "/other", Title: "x", Updated: now},
+	})
+	require.Equal(t, "mine", adopted.ClaudeSessionID, "the newest transcript in its directory")
+	var past []string
+	for _, inst := range h.list.GetInstances() {
+		if inst.Archived {
+			past = append(past, inst.ResumeID)
+		}
+	}
+	require.ElementsMatch(t, []string{"older", "elsewhere"}, past, "its own transcript is not listed twice")
 }
