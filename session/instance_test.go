@@ -256,3 +256,21 @@ func TestLaunchProgramForWindowsClaude(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "/mnt/c/Users/me/.local/bin/claude.exe --resume abc", inst.launchProgram())
 }
+
+func TestLaunchEnvKeepsTranscripts(t *testing.T) {
+	t.Setenv("WSLENV", "WT_SESSION:WT_PROFILE_ID/u")
+	linux, _ := NewInstance(InstanceOptions{Title: "l", Path: t.TempDir(), Program: "claude"})
+	require.Equal(t, []string{"CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1"}, linux.launchEnv())
+
+	win, _ := NewInstance(InstanceOptions{Title: "w", Path: t.TempDir(), Program: "/mnt/c/x/claude.exe"})
+	require.Equal(t, []string{"CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1",
+		"WSLENV=WT_SESSION:WT_PROFILE_ID/u:CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"}, win.launchEnv(),
+		"passed through to the Windows process")
+
+	other, _ := NewInstance(InstanceOptions{Title: "o", Path: t.TempDir(), Program: "aider"})
+	require.Nil(t, other.launchEnv())
+
+	require.Equal(t, "A:B", appendWSLENV("A:B", "B"), "already listed")
+	require.Equal(t, "B", appendWSLENV("", "B"))
+	require.Equal(t, "B/u", appendWSLENV("B/u", "B"), "listed with flags")
+}

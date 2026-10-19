@@ -133,3 +133,27 @@ func TestPaneID(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "%7", id)
 }
+
+func TestStartPassesEnv(t *testing.T) {
+	var created string
+	exists := false
+	exec := cmd_test.MockCmdExec{
+		RunFunc: func(c *exec.Cmd) error {
+			if strings.Contains(c.String(), "has-session") && !exists {
+				return fmt.Errorf("no session")
+			}
+			return nil
+		},
+		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return nil, nil },
+	}
+	pty := &MockPtyFactory{t: t}
+	s := NewTmuxSessionWithDeps("envtest", "claude", pty, exec)
+	s.SetEnv([]string{"A=1", "B=2"})
+	_ = s.Start("/tmp")
+	for _, c := range pty.cmds {
+		if strings.Contains(c.String(), "new-session") {
+			created = c.String()
+		}
+	}
+	require.Contains(t, created, "-c /tmp -e A=1 -e B=2 claude")
+}

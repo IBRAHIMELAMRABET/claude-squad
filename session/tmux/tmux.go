@@ -37,6 +37,8 @@ type TmuxSession struct {
 	cmdExec cmd.Executor
 	// foreign is true for sessions claude-squad did not create; their options are left alone.
 	foreign bool
+	// env holds NAME=value pairs set in the session's environment when it is created.
+	env []string
 
 	// Initialized by Start or Restore
 	//
@@ -101,7 +103,11 @@ func (t *TmuxSession) Start(workDir string) error {
 	}
 
 	// Create a new detached tmux session and start claude in it
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", t.sanitizedName, "-c", workDir, t.program)
+	args := []string{"new-session", "-d", "-s", t.sanitizedName, "-c", workDir}
+	for _, kv := range t.env {
+		args = append(args, "-e", kv)
+	}
+	cmd := exec.Command("tmux", append(args, t.program)...)
 
 	ptmx, err := t.ptyFactory.Start(cmd)
 	if err != nil {
@@ -176,6 +182,11 @@ func (t *TmuxSession) CheckAndHandleTrustPrompt() bool {
 		}
 	}
 	return false
+}
+
+// SetEnv sets NAME=value pairs for the session's environment, applied when Start creates it.
+func (t *TmuxSession) SetEnv(env []string) {
+	t.env = env
 }
 
 // Name returns the tmux session name.

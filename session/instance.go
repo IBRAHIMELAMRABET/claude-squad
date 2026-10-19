@@ -202,6 +202,7 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 	if instance.Paused() {
 		instance.started = true
 		instance.tmuxSession = tmux.NewTmuxSession(instance.Title, instance.launchProgram())
+		instance.tmuxSession.SetEnv(instance.launchEnv())
 	} else {
 		if err := instance.Start(false); err != nil {
 			return nil, err
@@ -305,6 +306,38 @@ func (i *Instance) launchProgram() string {
 		return program
 	}
 	return program + hooks.LaunchArgs(i.Program, settings)
+}
+
+// persistTranscripts is Claude Code's switch to keep saving transcripts in a process it
+// believes is a child session.
+const persistTranscripts = "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"
+
+// launchEnv returns environment variables for the agent's tmux session. cs starts real,
+// resumable sessions, so it keeps their transcripts even when cs itself was started from a
+// Claude session (which marks its children with CLAUDE_CODE_CHILD_SESSION and turns saving
+// off). A Windows claude.exe only sees variables listed in WSLENV.
+func (i *Instance) launchEnv() []string {
+	if !hooks.IsClaude(i.Program) {
+		return nil
+	}
+	env := []string{persistTranscripts + "=1"}
+	if hooks.IsWindowsProgram(i.Program) {
+		env = append(env, "WSLENV="+appendWSLENV(os.Getenv("WSLENV"), persistTranscripts))
+	}
+	return env
+}
+
+// appendWSLENV adds a variable to a WSLENV list unless it is already there.
+func appendWSLENV(wslenv, name string) string {
+	for _, item := range strings.Split(wslenv, ":") {
+		if strings.SplitN(item, "/", 2)[0] == name {
+			return wslenv
+		}
+	}
+	if wslenv == "" {
+		return name
+	}
+	return wslenv + ":" + name
 }
 
 // extraArgs renders claude_args for a shell command line: each argument quoted, "~"
@@ -429,6 +462,7 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 	} else {
 		// Create new tmux session
 		tmuxSession = tmux.NewTmuxSession(i.Title, i.launchProgram())
+		tmuxSession.SetEnv(i.launchEnv())
 	}
 	i.tmuxSession = tmuxSession
 
