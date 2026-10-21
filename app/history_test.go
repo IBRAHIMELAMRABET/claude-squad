@@ -72,6 +72,24 @@ func TestReconcileHistory(t *testing.T) {
 	require.Equal(t, 1, h.list.NumInstances(), "only the running instance remains")
 }
 
+// A rescan request wakes the one pending scan; it never starts a second scan chain.
+func TestRequestScanWakesThePendingScan(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	h := historyHome(t)
+	h.requestScan() // nothing pending yet: a no-op
+
+	cmd := h.scanHistoryCmd(time.Hour)
+	done := make(chan struct{})
+	go func() { cmd(); close(done) }()
+	h.requestScan()
+	h.requestScan() // a second request while one is pending is dropped, not blocking
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pending scan did not wake up")
+	}
+}
+
 func TestReconcileHistorySkipsMissingDirectories(t *testing.T) {
 	h := historyHome(t)
 	require.False(t, h.reconcileHistory([]history.Entry{{ID: "gone", CWD: "/definitely/not/here", Title: "x", Updated: time.Now()}}))

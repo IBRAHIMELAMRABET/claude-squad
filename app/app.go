@@ -141,6 +141,8 @@ type home struct {
 	// are filled by the background scan.
 	historyScanner *history.Scanner
 	repoRoots      map[string]string
+	// scanNow cuts the wait of the pending scan short (see requestScan).
+	scanNow chan struct{}
 	// width is the last known terminal width; listWidth the columns the list occupies.
 	width     int
 	listWidth int
@@ -517,7 +519,8 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				log.WarningLog.Printf("could not save instances: %v", err)
 			}
 			// Rescan now so the ended session reappears as a past one without waiting.
-			cmds = append(cmds, m.instanceChanged(), m.scanHistoryCmd(0))
+			m.requestScan()
+			cmds = append(cmds, m.instanceChanged())
 		}
 		return m, tea.Batch(cmds...)
 	case tea.MouseMsg:
