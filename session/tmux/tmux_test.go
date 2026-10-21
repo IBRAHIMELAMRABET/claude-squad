@@ -188,6 +188,7 @@ func TestSidebarSizing(t *testing.T) {
 		}
 	}
 	require.Contains(t, created, "-x 228 -y 62")
+	require.True(t, strings.HasSuffix(created, " sleep 86400"), "a placeholder runs until the window has its size")
 	exists = true
 	require.NoError(t, s.Restore())
 	for _, c := range pty.cmds {
@@ -196,4 +197,38 @@ func TestSidebarSizing(t *testing.T) {
 		}
 	}
 	require.Contains(t, attached, "attach-session -f ignore-size -t claudesquad_sized")
+}
+
+// tmux sizes a new window from the latest client, not from -x/-y, so the program only
+// starts once the window has the requested size, and after the options that change it.
+func TestSizedStartRunsTheProgramLast(t *testing.T) {
+	NewSessionSize = func() (int, int) { return 228, 62 }
+	defer func() { NewSessionSize = nil }()
+
+	pty := &MockPtyFactory{t: t}
+	var ran []string
+	exec := cmd_test.MockCmdExec{
+		RunFunc: func(c *exec.Cmd) error {
+			if strings.Contains(c.String(), "has-session") {
+				if len(pty.cmds) == 0 {
+					return fmt.Errorf("no session")
+				}
+				return nil
+			}
+			ran = append(ran, strings.Join(c.Args[1:], " "))
+			return nil
+		},
+		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return nil, nil },
+	}
+	s := NewTmuxSessionWithDeps("sized", "claude --resume x", pty, exec)
+	s.SetEnv([]string{"A=1"})
+	require.NoError(t, s.Start("/w"))
+
+	require.Contains(t, ran, "set-option -t claudesquad_sized status off")
+	tail := ran[len(ran)-3:]
+	require.Equal(t, []string{
+		"resize-window -t =claudesquad_sized: -x 228 -y 62",
+		"set-option -w -t =claudesquad_sized: window-size latest",
+		"respawn-pane -k -t =claudesquad_sized: -c /w -e A=1 claude --resume x",
+	}, tail)
 }

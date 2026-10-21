@@ -114,15 +114,26 @@ func (t *TmuxSession) Start(workDir string) error {
 
 	// Create a new detached tmux session and start claude in it
 	args := []string{"new-session", "-d", "-s", t.sanitizedName, "-c", workDir}
+	width, height := 0, 0
 	if NewSessionSize != nil {
-		if w, h := NewSessionSize(); w > 0 && h > 0 {
-			args = append(args, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h))
-		}
+		width, height = NewSessionSize()
+	}
+	sized := width > 0 && height > 0
+	if sized {
+		args = append(args, "-x", strconv.Itoa(width), "-y", strconv.Itoa(height))
 	}
 	for _, kv := range t.env {
 		args = append(args, "-e", kv)
 	}
-	cmd := exec.Command("tmux", append(args, t.program)...)
+	// With window-size "latest" tmux sizes a new window from the most recently active client
+	// and ignores -x/-y, so a sized session starts with a placeholder and runs the program
+	// only once the window has its size. A resize right after the program starts can be
+	// lost (Windows programs run through WSL keep their first size).
+	program := t.program
+	if sized {
+		program = "sleep 86400"
+	}
+	cmd := exec.Command("tmux", append(args, program)...)
 
 	ptmx, err := t.ptyFactory.Start(cmd)
 	if err != nil {
@@ -156,7 +167,17 @@ func (t *TmuxSession) Start(workDir string) error {
 	}
 	ptmx.Close()
 
+	// Options first: "status off" changes the pane's height.
 	t.applyOptions()
+
+	if sized {
+		if err := t.startSized(workDir, width, height); err != nil {
+			if cleanupErr := t.Close(); cleanupErr != nil {
+				err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
+			}
+			return fmt.Errorf("error starting tmux session: %w", err)
+		}
+	}
 
 	err = t.Restore()
 	if err != nil {
@@ -166,6 +187,27 @@ func (t *TmuxSession) Start(workDir string) error {
 		return fmt.Errorf("error restoring tmux session: %w", err)
 	}
 
+	return nil
+}
+
+// startSized gives the placeholder window its size, then replaces the placeholder with the
+// program, which so starts at that size.
+func (t *TmuxSession) startSized(workDir string, width, height int) error {
+	target := "=" + t.sanitizedName + ":"
+	respawn := []string{"respawn-pane", "-k", "-t", target, "-c", workDir}
+	for _, kv := range t.env {
+		respawn = append(respawn, "-e", kv)
+	}
+	for _, args := range [][]string{
+		{"resize-window", "-t", target, "-x", strconv.Itoa(width), "-y", strconv.Itoa(height)},
+		// resize-window fixes the window's size; let it follow its clients again.
+		{"set-option", "-w", "-t", target, "window-size", "latest"},
+		append(respawn, t.program),
+	} {
+		if err := t.cmdExec.Run(exec.Command("tmux", args...)); err != nil {
+			return fmt.Errorf("tmux %s: %w", args[0], err)
+		}
+	}
 	return nil
 }
 
