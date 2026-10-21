@@ -128,3 +128,17 @@ func TestTrueColorTerminal(t *testing.T) {
 	require.True(t, TrueColorTerminal(env(map[string]string{"TERM_PROGRAM": "vscode"})))
 	require.False(t, TrueColorTerminal(env(map[string]string{"TERM": "xterm-256color"})))
 }
+
+func TestFitSessions(t *testing.T) {
+	r := &recorder{output: "228 62"}
+	c := newTestController(t, r)
+	c.FitSessions([]string{"claudesquad_a"})
+	require.Equal(t, []string{
+		"tmux resize-window -t =claudesquad_a -x 228 -y 62",
+		"tmux set-option -w -t =claudesquad_a window-size latest",
+	}, r.ran)
+
+	r.ran, r.output = nil, ""
+	c.FitSessions([]string{"claudesquad_a"})
+	require.Empty(t, r.ran, "nothing when the viewer size is unknown")
+}

@@ -157,6 +157,21 @@ func (c *Controller) ViewerSize() (int, int) {
 	return w, h
 }
 
+// FitSessions gives the windows of the named sessions the viewer's size, so showing any of
+// them needs no resize (and no redraw by the program inside). The window keeps following
+// its clients afterwards: resize-window switches window-size to manual, which is undone.
+func (c *Controller) FitSessions(names []string) {
+	w, h := c.ViewerSize()
+	if w <= 0 || h <= 0 {
+		return
+	}
+	for _, name := range names {
+		target := "=" + name
+		_ = c.exec.Run(exec.Command("tmux", "resize-window", "-t", target, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h)))
+		_ = c.exec.Run(exec.Command("tmux", "set-option", "-w", "-t", target, "window-size", "latest"))
+	}
+}
+
 // Quit closes the whole layout. Agent sessions keep running detached. The order matters:
 // the pane-died hook is removed, the nested client in the viewer is replaced by the
 // placeholder so it exits cleanly, and only then are the layout sessions killed. Killing a

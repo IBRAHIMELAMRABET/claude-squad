@@ -52,8 +52,16 @@ func RunWithOptions(ctx context.Context, program string, autoYes bool, opts Opti
 			return err
 		}
 		h.sidebar = ctl
-		// New sessions start at the viewer's size, so showing them needs no resize.
+		// New sessions start at the viewer's size, and running ones are brought to it, so
+		// showing any of them needs no resize.
 		tmux.NewSessionSize = ctl.ViewerSize
+		var running []string
+		for _, inst := range h.list.GetInstances() {
+			if inst.Started() && !inst.Paused() && !inst.Adopted && inst.TmuxName() != "" {
+				running = append(running, inst.TmuxName())
+			}
+		}
+		ctl.FitSessions(running)
 		h.menu.SetSidebar(true)
 		h.list.SetCompact(true)
 	}
