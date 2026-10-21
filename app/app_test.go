@@ -710,19 +710,20 @@ func TestSidebarFollowsTheSelection(t *testing.T) {
 	h.Update(followMsg{version: 3})
 	require.Equal(t, "scratch", h.shown)
 	require.Len(t, ran, 1)
-	require.Contains(t, ran[0], "tmux respawn-pane -k -t %1 sh ")
+	require.Contains(t, ran[0], "tmux respawn-pane -k -t =claudesquad_ui:0.0 sh ")
 
-	// Enter focuses the pane; the session is already shown so nothing is respawned.
+	// Enter closes the list over the session; the session is already shown so nothing is
+	// respawned, and nothing is resized.
 	ran = ran[:0]
 	h.keySent = true
 	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyEnter})
-	require.Contains(t, ran, "tmux select-pane -t %1")
-	require.NotContains(t, strings.Join(ran, " "), "respawn-pane")
+	require.Equal(t, []string{"tmux detach-client -s =claudesquad_list"}, ran)
 
-	// z zooms the pane instead of hiding the list.
+	// z closes the list too, instead of hiding anything in the layout.
+	ran = ran[:0]
 	h.keySent = true
 	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
-	require.Contains(t, ran, "tmux resize-pane -Z -t %1")
+	require.Equal(t, []string{"tmux detach-client -s =claudesquad_list"}, ran)
 	require.False(t, h.listHidden)
 }
 
@@ -765,32 +766,26 @@ func TestConfirmedActionResultIsDelivered(t *testing.T) {
 	require.True(t, sawErr, "the action's error is delivered to Update")
 }
 
-// With the drawer behaviour, opening a session from the list also zooms its pane; at start
-// the list keeps the focus.
-func TestDrawerZoomsOnFocus(t *testing.T) {
+// At start the list stays open; opening a session closes it.
+func TestEnterClosesTheList(t *testing.T) {
 	var ran []string
 	h := sidebarHome(t, &ran)
 	adopted := session.NewAdoptedInstance(tmux.Pane{Session: "scratch", ID: "%7", Command: "claude", Path: t.TempDir()})
 	h.list.AddInstance(adopted)()
 
 	h.Init()
-	require.NotContains(t, ran, "tmux select-pane -t %1", "the list keeps the focus at start")
+	require.NotContains(t, ran, "tmux detach-client -s =claudesquad_list", "the list stays open at start")
 
 	h.keySent = true
 	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyEnter})
 	require.Equal(t, "scratch", h.shown)
-	require.Contains(t, ran, "tmux select-pane -t %1")
-	require.Contains(t, ran, "tmux resize-pane -Z -t %1", "zoomed because the drawer is on by default")
-
-	off := false
-	h.appConfig.SidebarDrawer = &off
-	ran = nil
-	h.keySent = true
-	h.handleKeyPress(tea.KeyMsg{Type: tea.KeyEnter})
-	require.Equal(t, []string{"tmux select-pane -t %1"}, ran, "no zoom when the drawer is off")
+	require.Contains(t, ran, "tmux detach-client -s =claudesquad_list")
+	for _, c := range ran {
+		require.NotContains(t, c, "resize-pane", "nothing in the layout is resized")
+	}
 }
 
-// In the sidebar layout a newly started session is shown and focused at once.
+// In the sidebar layout a newly started session is shown at once and the list closes.
 func TestSidebarFocusesNewlyStartedSession(t *testing.T) {
 	var ran []string
 	h := sidebarHome(t, &ran)
@@ -800,8 +795,7 @@ func TestSidebarFocusesNewlyStartedSession(t *testing.T) {
 
 	h.Update(instanceStartedMsg{instance: adopted})
 	require.Equal(t, "fresh", h.shown)
-	require.Contains(t, ran, "tmux select-pane -t %1")
-	require.Contains(t, ran, "tmux resize-pane -Z -t %1")
+	require.Contains(t, ran, "tmux detach-client -s =claudesquad_list")
 }
 
 // newTestStorage returns a Storage backed by memory so Update paths that save do not touch disk.

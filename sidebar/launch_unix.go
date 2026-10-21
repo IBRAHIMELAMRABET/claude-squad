@@ -16,31 +16,36 @@ import (
 	"golang.org/x/term"
 )
 
-// Launch creates the UI session when needed, running sidebarCommand in its left pane, and
-// attaches the current terminal to it. On success it does not return: the process is
-// replaced by tmux. When already inside tmux, the client is switched to the UI session
-// instead and Launch returns nil.
-func Launch(sidebarCommand string, width int, drawer bool) error {
+// Launch creates the layout sessions when needed, running sidebarCommand as the list, and
+// attaches the current terminal with the list open. On success it does not return: the
+// process is replaced by tmux. When already inside tmux, the client is switched to the
+// layout instead and Launch returns nil.
+func Launch(sidebarCommand string, width int) error {
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
 		return fmt.Errorf("tmux is required: %w", err)
 	}
-	if exec.Command(tmuxPath, "has-session", "-t", "="+UISession).Run() != nil {
-		if err := create(sidebarCommand, width, drawer); err != nil {
-			return err
-		}
+	if width <= 0 {
+		width = DefaultWidth
+	}
+	if err := ensureLayout(sidebarCommand, width); err != nil {
+		return err
 	}
 	if TrueColorTerminal(os.Getenv) {
 		enableTrueColor()
 	}
-	// Always open on the list, even when the layout was left inside a zoomed session, with
-	// the sidebar at its width.
-	_ = run(tmuxPath, "select-pane", "-t", "="+UISession+":0.0")
-	_ = run(tmuxPath, "select-layout", "-t", "="+UISession+":0", "main-vertical")
-	if os.Getenv("TMUX") != "" {
-		return run(tmuxPath, "switch-client", "-t", "="+UISession)
+	for _, args := range KeyBindings(width) {
+		_ = run("tmux", args...)
 	}
-	return syscall.Exec(tmuxPath, []string{"tmux", "attach-session", "-t", "=" + UISession}, os.Environ())
+	// The previous layout kept the list in a split pane and re-applied it on resize.
+	_ = run("tmux", "set-hook", "-gu", "client-resized")
+
+	open := OpenList(width)
+	if os.Getenv("TMUX") != "" {
+		return run(tmuxPath, append([]string{"switch-client", "-t", "=" + UISession, ";"}, open...)...)
+	}
+	argv := append([]string{"tmux", "attach-session", "-t", "=" + UISession, ";"}, open...)
+	return syscall.Exec(tmuxPath, argv, os.Environ())
 }
 
 // enableTrueColor tells tmux the outer terminal renders 24-bit colour and tells programs in
@@ -54,11 +59,14 @@ func enableTrueColor() {
 	}
 }
 
-// create builds the two-pane layout: the sidebar on the left, a placeholder on the right.
-func create(sidebarCommand string, width int, drawer bool) error {
-	if width <= 0 {
-		width = DefaultWidth
-	}
+func hasSession(name string) bool {
+	return exec.Command("tmux", "has-session", "-t", "="+name).Run() == nil
+}
+
+// ensureLayout creates the viewer session and the list session when they are missing. A
+// viewer session from the earlier split layout (two panes, the list in the first) is closed
+// first, the same careful way the list's quit does.
+func ensureLayout(sidebarCommand string, width int) error {
 	cols, rows := 160, 45
 	if w, h, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 && h > 0 {
 		cols, rows = w, h
@@ -78,29 +86,51 @@ func create(sidebarCommand string, width int, drawer bool) error {
 		return err
 	}
 
-	target := UISession + ":0.0"
-	steps := [][]string{
-		{"new-session", "-d", "-s", UISession, "-x", strconv.Itoa(cols), "-y", strconv.Itoa(rows), "-c", cwd,
-			"-e", EnvSidebar + "=1", sidebarCommand},
-		{"set-option", "-t", UISession, "status", "off"},
-		{"set-option", "-t", UISession, "mouse", "on"},
-		{"set-option", "-w", "-t", target, "remain-on-exit", "on"},
-		{"split-window", "-h", "-d", "-t", target, "-c", cwd, "sh " + shellQuote(placeholder)},
-		// main-vertical keeps the sidebar as the fixed-width main pane on the left; the global
-		// hook re-applies it when the terminal is resized (hooks on client events are global),
-		// except while the session is zoomed, which select-layout would undo.
-		{"set-option", "-w", "-t", target, "main-pane-width", strconv.Itoa(width)},
-		{"select-layout", "-t", target, "main-vertical"},
-		{"set-hook", "-g", "client-resized",
-			"if-shell -F '#{&&:#{==:#{session_name}," + UISession + "},#{!=:#{window_zoomed_flag},1}}' 'select-layout -t " + UISession + ":0 main-vertical'"},
-		// A session pane whose command ended (the session was killed or exited) shows the
-		// placeholder instead of "Pane is dead".
-		{"set-hook", "-t", UISession, "pane-died", "respawn-pane -k -t " + UISession + ":0.1 " + shellQuote("sh "+placeholder)},
+	if hasSession(UISession) {
+		out, _ := exec.Command("tmux", "list-panes", "-t", "="+UISession, "-F", "#{pane_id}").Output()
+		if len(strings.Fields(string(out))) > 1 {
+			_ = run("tmux", "set-hook", "-u", "-t", "="+UISession, "pane-died")
+			_ = run("tmux", "respawn-pane", "-k", "-t", "="+UISession+":0.1", "sh "+shellQuote(placeholder))
+			_ = run("tmux", "kill-session", "-t", "="+UISession)
+		}
 	}
-	steps = append(steps, KeyBindings(drawer)...)
+
+	if !hasSession(UISession) {
+		viewer := UISession + ":0.0"
+		steps := [][]string{
+			{"new-session", "-d", "-s", UISession, "-x", strconv.Itoa(cols), "-y", strconv.Itoa(rows), "-c", cwd,
+				"sh " + shellQuote(placeholder)},
+			{"set-option", "-t", UISession, "status", "off"},
+			{"set-option", "-t", UISession, "mouse", "on"},
+			{"set-option", "-w", "-t", viewer, "remain-on-exit", "on"},
+			// A viewer whose command ended (the session was killed or exited) shows the
+			// placeholder instead of "Pane is dead".
+			{"set-hook", "-t", UISession, "pane-died", "respawn-pane -k -t " + viewer + " " + shellQuote("sh "+placeholder)},
+		}
+		if err := runAll(steps, UISession); err != nil {
+			return err
+		}
+	}
+
+	if !hasSession(ListSession) {
+		steps := [][]string{
+			{"new-session", "-d", "-s", ListSession, "-x", strconv.Itoa(width), "-y", strconv.Itoa(rows), "-c", cwd,
+				"-e", EnvSidebar + "=1", sidebarCommand},
+			{"set-option", "-t", ListSession, "status", "off"},
+			{"set-option", "-t", ListSession, "mouse", "on"},
+		}
+		if err := runAll(steps, ListSession); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// runAll runs tmux commands in order, killing the session being built when one fails.
+func runAll(steps [][]string, session string) error {
 	for _, args := range steps {
 		if err := run("tmux", args...); err != nil {
-			_ = exec.Command("tmux", "kill-session", "-t", "="+UISession).Run()
+			_ = exec.Command("tmux", "kill-session", "-t", "="+session).Run()
 			return fmt.Errorf("tmux %s: %w", args[0], err)
 		}
 	}

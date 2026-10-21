@@ -75,36 +75,30 @@ NOTE: The default program is `claude` and we recommend using the latest version.
 
 #### Layout
 
-By default `cs` opens a tmux layout: the session list in a narrow pane on the left and the
-selected session, attached for real, on the right. You type into Claude Code directly, with
-mouse, scrollback and cursor, while the list stays visible.
+By default `cs` fills the terminal with the selected session, attached for real, and opens
+the session list over its left edge. You type into Claude Code directly, with mouse,
+scrollback and cursor.
 
 ```
-┌ sidebar ─────────────┬ selected session ──────────────────────┐
-│ ▾ Fawri   3 · 1 waiting │ ╭─ Claude Code ─────────────────────╮ │
-│  ! fix-auth          │ │ ...                                │ │
-│  ⠋ elk-api           │ ╰────────────────────────────────────╯ │
-│ ▸ CMIBills 1         │ ❯ _                                    │
-│ n new  ↵ focus  z zoom │                                        │
-└──────────────────────┴────────────────────────────────────────┘
+┌ list ───────────────│ selected session ─────────────────────────┐
+│  All 316  Active 2  │ ╭─ Claude Code ─────────────────────────╮ │
+│ ▾ CMIBills/Code/…   │ │ ...                                    │ │
+│ ● PERF TEST 2   now │ ╰────────────────────────────────────────╯ │
+│ ○ CMI BackOffice 1h │ ❯ _                                        │
+└─────────────────────┴────────────────────────────────────────────┘
 ```
 
-- Moving in the list shows that session on the right; `↵` moves the cursor into it and, by
-  default, zooms it to the full window so Claude looks exactly as it does on its own
-  (`sidebar_drawer`). `cs` always opens on the list.
-- `Alt-S` hides the list and returns to the session full width, as you left it; pressed in
-  the session, it shows the list again. (`Alt-←` / `Alt-→` do the same in terminals that pass
-  them through; Windows Terminal keeps them for its own panes.)
-- The cursor also stops on group headers: `space`, `↵` or `←`/`→` fold and unfold the group,
-  and a click on a header does the same. Moving over a header leaves the session pane as is.
-- When the terminal renders 24-bit colour (Windows Terminal, VS Code, iTerm2, WezTerm, or
-  `COLORTERM=truecolor`), `cs` tells tmux and the sessions so, so Claude Code's theme looks the
-  same as outside tmux. Sessions started before that keep 256 colours until restarted.
-- `tab` pages the session's diff on the right, `t` opens a shell in its directory; leaving
-  either returns to the session. `?` pages the help there.
-- `z` zooms the session to the full window and back. `q` closes the layout; sessions keep
-  running in tmux and reappear next time.
+- `Alt-S` shows or hides the list. The list is an overlay: opening or closing it never
+  resizes the session, so Claude never has to redraw.
+- Moving in the list shows that session behind it; `↵` opens it (the list closes).
+- `tab` pages the session's diff, `t` opens a shell in its directory, `?` pages the help;
+  leaving any of them returns to the session.
+- `q` closes the layout; sessions keep running in tmux and reappear next time.
 - `cs --classic` runs upstream's single-window layout (list, preview, diff and terminal tabs).
+
+The list runs in its own tmux session (`claudesquad_list`), shown through a tmux popup; the
+connection `cs` keeps to each agent session ignores its size, so only what you see sizes a
+session.
 
 #### Past sessions
 
@@ -207,8 +201,7 @@ All of these are optional; without them the fork behaves like upstream plus grou
 | `disable_hooks` | `false` | Do not pass the generated hooks settings file to `claude`; status then comes from the screen only. |
 | `claude_args` | `[]` | Extra arguments for claude sessions started by `cs`, for example `["--plugin-dir", "~/mods/my-plugin"]` to load plugins for those sessions only, without touching the shared `~/.claude`. |
 | `claude_settings` | unset | JSON object merged into that settings file, for machine-specific Claude settings that must not live in a shared `~/.claude/settings.json` (for example plugin marketplaces under WSL-only paths). The `hooks` key is reserved. |
-| `sidebar_width` | `32` | Width of the session list pane, in columns. |
-| `sidebar_drawer` | `true` | In the sidebar layout, zoom the session to the full window when it takes focus; `Alt-←` brings the list back. `false` keeps both panes visible. |
+| `sidebar_width` | `32` | Width of the session list, in columns. |
 | `disable_history` | `false` | Do not list past Claude sessions from `~/.claude/projects`. |
 | `history_limit` | `0` | Cap on past sessions per project directory; `0` lists them all. |
 | `history_days` | `0` | Hide past sessions older than this many days; `0` lists them all. |

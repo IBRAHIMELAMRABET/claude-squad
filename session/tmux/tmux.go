@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +64,15 @@ type TmuxSession struct {
 
 const TmuxPrefix = "claudesquad_"
 
+// BackgroundClientsIgnoreSize makes the connection kept to each session (for sending keys)
+// ignore the session's size. Set it when another client shows the sessions, as the sidebar
+// layout's viewer does, so the hidden connection never resizes them.
+var BackgroundClientsIgnoreSize bool
+
+// NewSessionSize, when set, returns the size new sessions are created with (zeros for the
+// tmux default).
+var NewSessionSize func() (width, height int)
+
 // ErrSessionNotFound is returned when the tmux session backing an instance is gone, which
 // happens whenever the tmux server dies (reboot, crash, `tmux kill-server`).
 var ErrSessionNotFound = errors.New("tmux session no longer exists")
@@ -104,6 +114,11 @@ func (t *TmuxSession) Start(workDir string) error {
 
 	// Create a new detached tmux session and start claude in it
 	args := []string{"new-session", "-d", "-s", t.sanitizedName, "-c", workDir}
+	if NewSessionSize != nil {
+		if w, h := NewSessionSize(); w > 0 && h > 0 {
+			args = append(args, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h))
+		}
+	}
 	for _, kv := range t.env {
 		args = append(args, "-e", kv)
 	}
@@ -223,7 +238,11 @@ func (t *TmuxSession) Restore() error {
 		return ErrSessionNotFound
 	}
 
-	ptmx, err := t.ptyFactory.Start(exec.Command("tmux", "attach-session", "-t", t.sanitizedName))
+	attach := []string{"attach-session", "-t", t.sanitizedName}
+	if BackgroundClientsIgnoreSize {
+		attach = []string{"attach-session", "-f", "ignore-size", "-t", t.sanitizedName}
+	}
+	ptmx, err := t.ptyFactory.Start(exec.Command("tmux", attach...))
 	if err != nil {
 		return fmt.Errorf("error opening PTY: %w", err)
 	}

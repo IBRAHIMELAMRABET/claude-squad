@@ -40,6 +40,11 @@ func Run(ctx context.Context, program string, autoYes bool) error {
 
 // RunWithOptions runs the application with the given options.
 func RunWithOptions(ctx context.Context, program string, autoYes bool, opts Options) error {
+	if opts.Sidebar {
+		// The viewer client sizes the sessions; the connection claude-squad keeps to each one
+		// must not, or sessions jump between sizes and their programs redraw.
+		tmux.BackgroundClientsIgnoreSize = true
+	}
 	h := newHome(ctx, program, autoYes)
 	if opts.Sidebar {
 		ctl, err := sidebar.New(os.Getenv("TMUX_PANE"), cmd.MakeExecutor(), h.appConfig.GetSidebarWidth())
@@ -47,6 +52,8 @@ func RunWithOptions(ctx context.Context, program string, autoYes bool, opts Opti
 			return err
 		}
 		h.sidebar = ctl
+		// New sessions start at the viewer's size, so showing them needs no resize.
+		tmux.NewSessionSize = ctl.ViewerSize
 		h.menu.SetSidebar(true)
 		h.list.SetCompact(true)
 	}
@@ -269,7 +276,7 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 		listWidth = 0
 	}
 	if m.sidebar != nil {
-		listWidth = msg.Width
+		listWidth = msg.Width - 1 // the last column is the list's edge
 	}
 	m.listWidth = listWidth
 	tabsWidth := msg.Width - listWidth
@@ -288,12 +295,6 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 	m.list.SetSize(listWidth, contentHeight)
 
 	m.width = msg.Width
-	if m.sidebar != nil {
-		// A terminal resize scales both panes; put the sidebar back to its width.
-		if err := m.sidebar.FixWidth(msg.Width); err != nil {
-			log.WarningLog.Printf("could not restore the sidebar width: %v", err)
-		}
-	}
 	overlayWidth := int(float32(msg.Width) * 0.6)
 	if m.sidebar != nil {
 		overlayWidth = msg.Width - 2 // the pane is narrow: use all of it
@@ -312,7 +313,11 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 			log.ErrorLog.Print(err)
 		}
 	}
-	m.menu.SetSize(msg.Width, menuHeight)
+	if m.sidebar != nil {
+		m.menu.SetSize(msg.Width-1, menuHeight)
+	} else {
+		m.menu.SetSize(msg.Width, menuHeight)
+	}
 }
 
 func (m *home) Init() tea.Cmd {
@@ -1242,6 +1247,25 @@ func (m *home) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// edgeStyle draws the right edge of the list, which floats over the session.
+var edgeStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#C8C8C8", Dark: "#3A3A3A"})
+
+// withEdge pads every line of view to width-1 columns and ends it with the list's edge.
+func withEdge(view string, width int) string {
+	if width < 2 {
+		return view
+	}
+	lines := strings.Split(view, "\n")
+	edge := edgeStyle.Render("│")
+	for i, line := range lines {
+		if w := lipgloss.Width(line); w < width-1 {
+			line += strings.Repeat(" ", width-1-w)
+		}
+		lines[i] = line + edge
+	}
+	return strings.Join(lines, "\n")
+}
+
 // handleFilterState edits the text filter: typed runes extend it, enter keeps it, esc
 // clears it.
 func (m *home) handleFilterState(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1276,9 +1300,6 @@ func (m *home) handleSidebarKey(name keys.KeyName) (bool, tea.Cmd) {
 	case keys.KeyHelp:
 		return true, m.showPaneHelp()
 	case keys.KeyToggleList:
-		if err := m.sidebar.ToggleZoom(); err != nil {
-			return true, m.handleError(err)
-		}
 		return true, m.focusSession()
 	case keys.KeyEnter:
 		if _, onHeader := m.list.SelectedHeader(); onHeader {
@@ -1314,7 +1335,7 @@ func (m *home) handleSidebarKey(name keys.KeyName) (bool, tea.Cmd) {
 			return true, m.handleError(err)
 		}
 		m.shown = selected.TmuxName() // the viewer returns to the session when it exits
-		if err := m.sidebar.FocusRight(); err != nil {
+		if err := m.sidebar.CloseList(); err != nil {
 			return true, m.handleError(err)
 		}
 		return true, nil
@@ -1401,13 +1422,9 @@ func (m *home) focusSession() tea.Cmd {
 	if m.shown == "" {
 		return nil
 	}
-	if err := m.sidebar.FocusRight(); err != nil {
+	// Closing the list hands the keyboard to the session, which already fills the terminal.
+	if err := m.sidebar.CloseList(); err != nil {
 		return m.handleError(err)
-	}
-	if m.appConfig.DrawerSidebar() {
-		if err := m.sidebar.ZoomSession(); err != nil {
-			return m.handleError(err)
-		}
 	}
 	return nil
 }
@@ -1417,7 +1434,7 @@ func (m *home) showPaneHelp() tea.Cmd {
 	if err := m.sidebar.ShowHelp(sidebarHelp(), m.shown); err != nil {
 		return m.handleError(err)
 	}
-	if err := m.sidebar.FocusRight(); err != nil {
+	if err := m.sidebar.CloseList(); err != nil {
 		return m.handleError(err)
 	}
 	return nil
@@ -1691,6 +1708,9 @@ func (m *home) View() string {
 		m.menu.String(),
 		m.errBox.String(),
 	)
+	if m.sidebar != nil {
+		mainView = withEdge(mainView, m.width)
+	}
 
 	if m.state == statePrompt {
 		if m.textInputOverlay == nil {

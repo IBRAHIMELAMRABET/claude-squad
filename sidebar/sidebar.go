@@ -1,10 +1,15 @@
-// Package sidebar lays claude-squad out like a desktop session manager: the session list in
-// a narrow tmux pane on the left and the selected agent session, attached for real, on the
-// right. It drives tmux with small commands; the Bubble Tea app only decides what to show.
+// Package sidebar lays claude-squad out like a desktop session manager: the selected agent
+// session, attached for real, fills the terminal, and the session list opens over its left
+// edge as a tmux popup. Opening or closing the list never resizes the session, so the
+// program inside never has to redraw.
 //
-// Everything shown on the right runs as `sh <script>`, where the script is written under the
-// config directory. That avoids shell quoting inside tmux arguments and lets a viewer (diff,
-// shell, help) hand the pane back to the session when it exits.
+// Two tmux sessions make the layout: UISession holds one pane, the viewer, which shows the
+// selected session (or a placeholder, a diff, a shell); ListSession runs the list app. The
+// popup is a nested client of ListSession, so the list keeps its state while hidden.
+//
+// Everything shown in the viewer runs as `sh <script>`, where the script is written under
+// the config directory. That avoids shell quoting inside tmux arguments and lets a viewer
+// (diff, shell, help) hand the pane back to the session when it exits.
 package sidebar
 
 import (
@@ -20,26 +25,31 @@ import (
 )
 
 const (
-	// UISession is the outer tmux session holding the sidebar and the session pane.
+	// UISession is the tmux session the terminal is attached to: one pane, the viewer.
 	UISession = tmux.TmuxPrefix + "ui"
-	// DefaultWidth is the sidebar pane width in columns when none is configured.
+	// ListSession runs the session list shown in the popup.
+	ListSession = tmux.TmuxPrefix + "list"
+	// DefaultWidth is the list width in columns when none is configured.
 	DefaultWidth = 32
-	// EnvSidebar marks the process running inside the sidebar pane.
+	// EnvSidebar marks the process running the list.
 	EnvSidebar = "CLAUDE_SQUAD_SIDEBAR"
 )
 
-// Controller drives the pane beside the sidebar.
+// viewerTarget is the viewer pane.
+const viewerTarget = "=" + UISession + ":0.0"
+
+// Controller drives the viewer and the list popup.
 type Controller struct {
 	exec cmd.Executor
-	// self is the sidebar's own pane id ($TMUX_PANE).
+	// self is the list's own pane id ($TMUX_PANE).
 	self string
 	// dir is where the viewer scripts are written.
 	dir string
-	// width is the sidebar pane width, restored when the pane is recreated.
+	// width is the list width.
 	width int
 }
 
-// New returns a controller for a sidebar running in pane self.
+// New returns a controller for a list running in pane self.
 func New(self string, exec cmd.Executor, width int) (*Controller, error) {
 	if self == "" {
 		return nil, fmt.Errorf("the sidebar must run inside tmux (TMUX_PANE is empty)")
@@ -54,56 +64,9 @@ func New(self string, exec cmd.Executor, width int) (*Controller, error) {
 	return &Controller{exec: exec, self: self, dir: filepath.Join(dir, "sidebar"), width: width}, nil
 }
 
-// InsideSidebar reports whether this process is the sidebar pane of the UI session.
+// InsideSidebar reports whether this process is the list of the layout.
 func InsideSidebar() bool {
 	return os.Getenv(EnvSidebar) == "1" && os.Getenv("TMUX_PANE") != ""
-}
-
-// OtherPane parses `list-panes -F "#{pane_id}<TAB>#{pane_left}"` output and returns the
-// rightmost pane that is not self, or "".
-func OtherPane(out, self string) string {
-	best, bestLeft := "", -1
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Split(strings.TrimSpace(line), "\t")
-		if fields[0] == "" || fields[0] == self {
-			continue
-		}
-		left := 0
-		if len(fields) > 1 {
-			left, _ = strconv.Atoi(fields[1])
-		}
-		if left > bestLeft {
-			best, bestLeft = fields[0], left
-		}
-	}
-	return best
-}
-
-// RightPane returns the pane beside the sidebar, creating it when it went missing.
-func (c *Controller) RightPane() (string, error) {
-	list := func() (string, error) {
-		out, err := c.exec.Output(exec.Command("tmux", "list-panes", "-t", c.self, "-F", "#{pane_id}\t#{pane_left}"))
-		if err != nil {
-			return "", fmt.Errorf("could not list panes: %w", err)
-		}
-		return OtherPane(string(out), c.self), nil
-	}
-	if id, err := list(); err != nil || id != "" {
-		return id, err
-	}
-	script, err := c.writeScript("placeholder.sh", PlaceholderScript())
-	if err != nil {
-		return "", err
-	}
-	if err := c.exec.Run(exec.Command("tmux", "split-window", "-h", "-d", "-t", c.self, "sh "+shellQuote(script))); err != nil {
-		return "", fmt.Errorf("could not create the session pane: %w", err)
-	}
-	_ = c.exec.Run(exec.Command("tmux", "resize-pane", "-t", c.self, "-x", strconv.Itoa(c.width)))
-	id, err := list()
-	if err == nil && id == "" {
-		err = fmt.Errorf("the session pane did not appear")
-	}
-	return id, err
 }
 
 // writeScript stores a viewer script and returns its path.
@@ -118,20 +81,16 @@ func (c *Controller) writeScript(name, body string) (string, error) {
 	return path, nil
 }
 
-// show runs a viewer script in the right pane, replacing whatever runs there.
+// show runs a viewer script in the viewer pane, replacing whatever runs there.
 func (c *Controller) show(name, body string) error {
-	pane, err := c.RightPane()
-	if err != nil {
-		return err
-	}
 	script, err := c.writeScript(name, body)
 	if err != nil {
 		return err
 	}
-	return c.exec.Run(exec.Command("tmux", "respawn-pane", "-k", "-t", pane, "sh "+shellQuote(script)))
+	return c.exec.Run(exec.Command("tmux", "respawn-pane", "-k", "-t", viewerTarget, "sh "+shellQuote(script)))
 }
 
-// ShowSession attaches the right pane to a tmux session.
+// ShowSession attaches the viewer to a tmux session.
 func (c *Controller) ShowSession(sessionName string) error {
 	return c.show("attach.sh", AttachScript(sessionName))
 }
@@ -160,7 +119,7 @@ func (c *Controller) ShowHelp(text, sessionName string) error {
 	return c.show("help.sh", HelpScript(path, sessionName))
 }
 
-// ShowText shows a static text card in the pane (for a session that is not running).
+// ShowText shows a static text card in the viewer (for a session that is not running).
 func (c *Controller) ShowText(text string) error {
 	path, err := c.writeScript("card.txt", text)
 	if err != nil {
@@ -174,72 +133,79 @@ func TextScript(path string) string {
 	return "clear\ncat " + shellQuote(path) + "\nwhile :; do sleep 3600; done\n"
 }
 
-// FocusRight moves the cursor into the session pane.
-func (c *Controller) FocusRight() error {
-	pane, err := c.RightPane()
+// CloseList closes the list popup, which hands the keyboard back to the viewer.
+func (c *Controller) CloseList() error {
+	return c.exec.Run(exec.Command("tmux", "detach-client", "-s", "="+ListSession))
+}
+
+// ViewerSize returns the size of the viewer pane, or zeros when it cannot be read. New
+// sessions are created at this size so showing them needs no resize.
+func (c *Controller) ViewerSize() (int, int) {
+	out, err := c.exec.Output(exec.Command("tmux", "display-message", "-p", "-t", viewerTarget, "#{pane_width} #{pane_height}"))
 	if err != nil {
-		return err
+		return 0, 0
 	}
-	return c.exec.Run(exec.Command("tmux", "select-pane", "-t", pane))
-}
-
-// Zoomed reports whether the window is currently zoomed on one pane.
-func (c *Controller) Zoomed() bool {
-	out, err := c.exec.Output(exec.Command("tmux", "display-message", "-p", "-t", c.self, "#{window_zoomed_flag}"))
-	return err == nil && strings.TrimSpace(string(out)) == "1"
-}
-
-// ZoomSession zooms the session pane to the full window if it is not already.
-func (c *Controller) ZoomSession() error {
-	if c.Zoomed() {
-		return nil
+	fields := strings.Fields(string(out))
+	if len(fields) != 2 {
+		return 0, 0
 	}
-	return c.ToggleZoom()
-}
-
-// ToggleZoom zooms the session pane to the full window, or back.
-func (c *Controller) ToggleZoom() error {
-	pane, err := c.RightPane()
-	if err != nil {
-		return err
+	w, errW := strconv.Atoi(fields[0])
+	h, errH := strconv.Atoi(fields[1])
+	if errW != nil || errH != nil {
+		return 0, 0
 	}
-	return c.exec.Run(exec.Command("tmux", "resize-pane", "-Z", "-t", pane))
+	return w, h
 }
 
 // Quit closes the whole layout. Agent sessions keep running detached. The order matters:
-// the pane-died hook is removed, the nested client in the session pane is replaced by the
-// placeholder so it exits cleanly, and only then is the layout session killed. Killing the
+// the pane-died hook is removed, the nested client in the viewer is replaced by the
+// placeholder so it exits cleanly, and only then are the layout sessions killed. Killing a
 // session while it still hosts a client of the same server has taken the server, and every
-// agent session with it, down.
+// agent session with it, down. The list session, which runs this process, goes last.
 func (c *Controller) Quit() error {
 	_ = c.exec.Run(exec.Command("tmux", "set-hook", "-u", "-t", "="+UISession, "pane-died"))
 	_ = c.ShowPlaceholder()
-	return c.exec.Run(exec.Command("tmux", "kill-session", "-t", "="+UISession))
+	err := c.exec.Run(exec.Command("tmux", "kill-session", "-t", "="+UISession))
+	_ = c.exec.Run(exec.Command("tmux", "kill-session", "-t", "="+ListSession))
+	return err
 }
 
-// KeyBindings returns the tmux commands binding Alt+Left and Alt+Right in the UI session.
-// Alt+Left shows the list (unzooming the session); Alt+Right, from the list, goes back to
-// the session, zoomed again when drawer is on. Anywhere else the keys reach the program
-// unchanged, so Alt+Right keeps working inside Claude Code.
-func KeyBindings(drawer bool) [][]string {
+// ListAttach is the shell command the popup runs: a nested client of the list session.
+// TMUX is cleared so tmux accepts nesting.
+func ListAttach() string {
+	return "TMUX= exec tmux attach-session -t =" + ListSession
+}
+
+// OpenList returns the tmux command (as arguments) opening the list over the left edge of
+// the current client. -B draws no border: the list draws its own edge.
+func OpenList(width int) []string {
+	if width <= 0 {
+		width = DefaultWidth
+	}
+	return []string{"display-popup", "-E", "-B", "-x", "0", "-y", "0", "-w", strconv.Itoa(width), "-h", "100%", ListAttach()}
+}
+
+// KeyBindings returns the tmux commands binding the layout keys. Alt+S opens the list when
+// pressed in the viewer and closes it when pressed in the list; elsewhere it reaches the
+// program unchanged. Alt+Left opens and Alt+Right closes, for terminals that pass them on
+// (Windows Terminal keeps them for its own panes).
+func KeyBindings(width int) [][]string {
 	inUI := "#{==:#{session_name}," + UISession + "}"
-	onList := "#{&&:" + inUI + ",#{==:#{pane_index},0}}"
-	back := "select-pane -t =" + UISession + ":0.1"
-	if drawer {
-		back += " ; resize-pane -Z -t =" + UISession + ":0.1"
-	}
-	// Coming back to the list also re-applies the layout, which restores the sidebar width
-	// after a terminal resize scaled it while the session was zoomed.
-	toList := "select-pane -t =" + UISession + ":0.0 ; select-layout -t =" + UISession + ":0 main-vertical"
-	// Alt+S toggles: from the list it goes back to the session, anywhere else in the layout
-	// it shows the list. Windows Terminal keeps Alt+arrows for its own panes, so Alt+S is the
-	// key that works everywhere; the Alt+arrows stay for terminals that pass them through.
-	toggle := "if-shell -F '" + inUI + "' '" + toList + "' 'send-keys M-s'"
+	inList := "#{==:#{session_name}," + ListSession + "}"
+	open := strings.Join(quoteLast(OpenList(width)), " ")
 	return [][]string{
-		{"bind-key", "-n", "M-s", "if-shell", "-F", onList, back, toggle},
-		{"bind-key", "-n", "M-Left", "if-shell", "-F", inUI, toList, "send-keys M-Left"},
-		{"bind-key", "-n", "M-Right", "if-shell", "-F", onList, back, "send-keys M-Right"},
+		{"bind-key", "-n", "M-s", "if-shell", "-F", inUI, open, "if-shell -F '" + inList + "' 'detach-client' 'send-keys M-s'"},
+		{"bind-key", "-n", "M-Left", "if-shell", "-F", inUI, open, "send-keys M-Left"},
+		{"bind-key", "-n", "M-Right", "if-shell", "-F", inList, "detach-client", "send-keys M-Right"},
 	}
+}
+
+// quoteLast double-quotes the last argument (the popup's shell command) so the command can
+// be written as one tmux command string.
+func quoteLast(args []string) []string {
+	out := append([]string(nil), args...)
+	out[len(out)-1] = `"` + out[len(out)-1] + `"`
+	return out
 }
 
 // TrueColorTerminal reports whether the terminal described by the environment renders
@@ -259,15 +225,6 @@ func TrueColorTerminal(getenv func(string) string) bool {
 	return false
 }
 
-// FixWidth restores the sidebar width when a terminal resize scaled the pane, unless the
-// session is zoomed (resizing would unzoom it). current is the pane's width now.
-func (c *Controller) FixWidth(current int) error {
-	if current == c.width || c.Zoomed() {
-		return nil
-	}
-	return c.exec.Run(exec.Command("tmux", "resize-pane", "-t", c.self, "-x", strconv.Itoa(c.width)))
-}
-
 // AttachScript shows a tmux session inside the pane. TMUX is cleared so tmux accepts nesting.
 func AttachScript(sessionName string) string {
 	return "TMUX= exec tmux attach-session -t " + shellQuote("="+sessionName) + "\n"
@@ -276,7 +233,7 @@ func AttachScript(sessionName string) string {
 // PlaceholderScript shows a hint and waits.
 func PlaceholderScript() string {
 	return "clear\n" +
-		"printf '\\n\\n   No session selected.\\n\\n   Pick one on the left, or press n to create one.\\n   Alt+S shows or hides the list.\\n'\n" +
+		"printf '\\n\\n   No session selected.\\n\\n   Alt+S opens the list: pick a session, or press n to create one.\\n'\n" +
 		"while :; do sleep 3600; done\n"
 }
 

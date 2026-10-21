@@ -98,7 +98,7 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed to locate the executable: %w", err)
 			}
-			return sidebar.Launch(sidebarCommand(execPath, os.Args[1:]), cfg.GetSidebarWidth(), cfg.DrawerSidebar())
+			return sidebar.Launch(sidebarCommand(execPath, os.Args[1:]), cfg.GetSidebarWidth())
 		},
 	}
 

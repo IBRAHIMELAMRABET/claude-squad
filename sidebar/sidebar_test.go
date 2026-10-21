@@ -11,18 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOtherPane(t *testing.T) {
-	out := "%0\t0\n%3\t37\n%1\t120\n"
-	require.Equal(t, "%1", OtherPane(out, "%0"), "the rightmost other pane")
-	require.Equal(t, "%1", OtherPane(out, "%3"))
-	require.Equal(t, "", OtherPane("%0\t0\n", "%0"), "alone in the window")
-	require.Equal(t, "", OtherPane("", "%0"))
-	require.Equal(t, "%2", OtherPane("%2\n", "%0"), "a missing left column still counts")
-}
-
 func TestScripts(t *testing.T) {
 	require.Equal(t, "TMUX= exec tmux attach-session -t '=claudesquad_fix'\n", AttachScript("claudesquad_fix"))
 	require.Contains(t, PlaceholderScript(), "No session selected")
+	require.Contains(t, PlaceholderScript(), "Alt+S opens the list")
 
 	diff := DiffScript("/wt/fix", "abc123", "claudesquad_fix")
 	require.Contains(t, diff, "git -C '/wt/fix' --no-pager diff --color=always 'abc123' | less -R")
@@ -36,11 +28,24 @@ func TestScripts(t *testing.T) {
 	require.Contains(t, shell, `cd '/it'\''s here' && "${SHELL:-sh}"`)
 
 	require.Contains(t, HelpScript("/h/help.txt", "s"), "less -R '/h/help.txt'")
+	require.Contains(t, TextScript("/x/card.txt"), "cat '/x/card.txt'")
 }
 
-func newTestController(t *testing.T, exec cmd_test.MockCmdExec) *Controller {
+type recorder struct {
+	ran    []string
+	output string
+}
+
+func (r *recorder) exec() cmd_test.MockCmdExec {
+	return cmd_test.MockCmdExec{
+		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return []byte(r.output), nil },
+		RunFunc:    func(c *exec.Cmd) error { r.ran = append(r.ran, strings.Join(c.Args, " ")); return nil },
+	}
+}
+
+func newTestController(t *testing.T, r *recorder) *Controller {
 	t.Setenv("HOME", t.TempDir())
-	c, err := New("%0", exec, 36)
+	c, err := New("%9", r.exec(), 36)
 	require.NoError(t, err)
 	return c
 }
@@ -50,87 +55,69 @@ func TestNewRequiresTmux(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestShowSessionRespawnsTheRightPane(t *testing.T) {
-	var ran []string
-	mock := cmd_test.MockCmdExec{
-		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return []byte("%0\t0\n%1\t37\n"), nil },
-		RunFunc:    func(c *exec.Cmd) error { ran = append(ran, strings.Join(c.Args, " ")); return nil },
-	}
-	c := newTestController(t, mock)
+// The viewer is always the single pane of the layout session; the list closes by detaching
+// the popup's client.
+func TestControllerDrivesTheViewerAndTheList(t *testing.T) {
+	r := &recorder{}
+	c := newTestController(t, r)
 
 	require.NoError(t, c.ShowSession("claudesquad_fix"))
-	require.Len(t, ran, 1)
-	require.Contains(t, ran[0], "tmux respawn-pane -k -t %1 sh ")
-	script := strings.TrimPrefix(ran[0], "tmux respawn-pane -k -t %1 sh ")
-	script = strings.Trim(script, "'")
+	require.Len(t, r.ran, 1)
+	prefix := "tmux respawn-pane -k -t =claudesquad_ui:0.0 sh "
+	require.True(t, strings.HasPrefix(r.ran[0], prefix), r.ran[0])
+	script := strings.Trim(strings.TrimPrefix(r.ran[0], prefix), "'")
 	data, err := os.ReadFile(script)
 	require.NoError(t, err)
 	require.Equal(t, AttachScript("claudesquad_fix"), string(data))
 	require.Equal(t, "attach.sh", filepath.Base(script))
 
-	require.NoError(t, c.FocusRight())
-	require.Equal(t, "tmux select-pane -t %1", ran[1])
-	require.NoError(t, c.ToggleZoom())
-	require.Equal(t, "tmux resize-pane -Z -t %1", ran[2])
-	require.NoError(t, c.Quit())
-	require.Equal(t, "tmux set-hook -u -t ="+UISession+" pane-died", ran[3], "the hook goes first")
-	require.Contains(t, ran[4], "tmux respawn-pane -k -t %1 sh ", "then the nested client is replaced")
-	require.Equal(t, "tmux kill-session -t ="+UISession, ran[5], "and only then the session dies")
-}
+	require.NoError(t, c.CloseList())
+	require.Equal(t, "tmux detach-client -s =claudesquad_list", r.ran[1])
 
-func TestRightPaneIsRecreatedWhenMissing(t *testing.T) {
-	calls := 0
-	var ran []string
-	mock := cmd_test.MockCmdExec{
-		OutputFunc: func(c *exec.Cmd) ([]byte, error) {
-			calls++
-			if calls == 1 {
-				return []byte("%0\t0\n"), nil // alone
-			}
-			return []byte("%0\t0\n%5\t37\n"), nil
-		},
-		RunFunc: func(c *exec.Cmd) error { ran = append(ran, strings.Join(c.Args, " ")); return nil },
-	}
-	c := newTestController(t, mock)
-
-	pane, err := c.RightPane()
-	require.NoError(t, err)
-	require.Equal(t, "%5", pane)
-	require.Contains(t, ran[0], "tmux split-window -h -d -t %0 sh ")
-	require.Equal(t, "tmux resize-pane -t %0 -x 36", ran[1])
-}
-
-func TestShowTextWritesCard(t *testing.T) {
-	var ran []string
-	mock := cmd_test.MockCmdExec{
-		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return []byte("%0\t0\n%1\t37\n"), nil },
-		RunFunc:    func(c *exec.Cmd) error { ran = append(ran, strings.Join(c.Args, " ")); return nil },
-	}
-	c := newTestController(t, mock)
 	require.NoError(t, c.ShowText("hello\nworld"))
-	require.Contains(t, ran[0], "respawn-pane -k -t %1 sh ")
-	data, err := os.ReadFile(filepath.Join(c.dir, "card.txt"))
+	card, err := os.ReadFile(filepath.Join(c.dir, "card.txt"))
 	require.NoError(t, err)
-	require.Equal(t, "hello\nworld", string(data))
-	require.Contains(t, TextScript("/x/card.txt"), "cat '/x/card.txt'")
+	require.Equal(t, "hello\nworld", string(card))
 }
 
-func TestKeyBindings(t *testing.T) {
-	b := KeyBindings(true)
-	require.Len(t, b, 3)
-	require.Equal(t, "M-s", b[0][2], "Alt+S toggles the list")
-	require.Equal(t, "select-pane -t =claudesquad_ui:0.1 ; resize-pane -Z -t =claudesquad_ui:0.1", b[0][6], "from the list: back to the session")
-	require.Contains(t, b[0][7], "select-layout", "elsewhere in the layout: show the list")
-	require.Contains(t, b[0][7], "send-keys M-s", "outside the layout the key reaches the program")
-	b = b[1:]
-	require.Equal(t, []string{"bind-key", "-n", "M-Left", "if-shell", "-F", "#{==:#{session_name},claudesquad_ui}",
-		"select-pane -t =claudesquad_ui:0.0 ; select-layout -t =claudesquad_ui:0 main-vertical", "send-keys M-Left"}, b[0])
-	require.Equal(t, "M-Right", b[1][2])
-	require.Contains(t, b[1][5], "#{==:#{pane_index},0}", "only from the list")
-	require.Equal(t, "select-pane -t =claudesquad_ui:0.1 ; resize-pane -Z -t =claudesquad_ui:0.1", b[1][6], "back to the session, zoomed")
-	require.Equal(t, "send-keys M-Right", b[1][7], "inside the session the key reaches the program")
+func TestQuitOrder(t *testing.T) {
+	r := &recorder{}
+	c := newTestController(t, r)
+	require.NoError(t, c.Quit())
+	require.Equal(t, "tmux set-hook -u -t =claudesquad_ui pane-died", r.ran[0], "the hook goes first")
+	require.Contains(t, r.ran[1], "tmux respawn-pane -k -t =claudesquad_ui:0.0 sh ", "then the nested client is replaced")
+	require.Equal(t, "tmux kill-session -t =claudesquad_ui", r.ran[2])
+	require.Equal(t, "tmux kill-session -t =claudesquad_list", r.ran[3], "the list, which runs this process, goes last")
+}
 
-	require.Equal(t, "select-pane -t =claudesquad_ui:0.1", KeyBindings(false)[2][6], "no zoom without the drawer")
+func TestViewerSize(t *testing.T) {
+	r := &recorder{output: "228 62\n"}
+	c := newTestController(t, r)
+	w, h := c.ViewerSize()
+	require.Equal(t, 228, w)
+	require.Equal(t, 62, h)
+
+	r.output = "garbage"
+	w, h = c.ViewerSize()
+	require.Zero(t, w)
+	require.Zero(t, h)
+}
+
+func TestOpenListAndKeyBindings(t *testing.T) {
+	require.Equal(t, []string{"display-popup", "-E", "-B", "-x", "0", "-y", "0", "-w", "32", "-h", "100%",
+		"TMUX= exec tmux attach-session -t =claudesquad_list"}, OpenList(32))
+	require.Equal(t, "32", OpenList(0)[8], "default width")
+
+	b := KeyBindings(32)
+	require.Len(t, b, 3)
+	require.Equal(t, "M-s", b[0][2])
+	require.Equal(t, "#{==:#{session_name},claudesquad_ui}", b[0][5], "opens from the viewer")
+	require.Equal(t, `display-popup -E -B -x 0 -y 0 -w 32 -h 100% "TMUX= exec tmux attach-session -t =claudesquad_list"`, b[0][6])
+	require.Equal(t, "if-shell -F '#{==:#{session_name},claudesquad_list}' 'detach-client' 'send-keys M-s'", b[0][7],
+		"closes from the list, and reaches the program anywhere else")
+	require.Equal(t, "M-Left", b[1][2])
+	require.Equal(t, "M-Right", b[2][2])
+	require.Equal(t, "detach-client", b[2][6])
 }
 
 func TestTrueColorTerminal(t *testing.T) {
@@ -140,24 +127,4 @@ func TestTrueColorTerminal(t *testing.T) {
 	require.True(t, TrueColorTerminal(env(map[string]string{"WT_SESSION": "abc"})), "Windows Terminal")
 	require.True(t, TrueColorTerminal(env(map[string]string{"TERM_PROGRAM": "vscode"})))
 	require.False(t, TrueColorTerminal(env(map[string]string{"TERM": "xterm-256color"})))
-}
-
-func TestFixWidth(t *testing.T) {
-	var ran []string
-	zoomed := "0"
-	mock := cmd_test.MockCmdExec{
-		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return []byte(zoomed + "\n"), nil },
-		RunFunc:    func(c *exec.Cmd) error { ran = append(ran, strings.Join(c.Args, " ")); return nil },
-	}
-	c := newTestController(t, mock)
-
-	require.NoError(t, c.FixWidth(36))
-	require.Empty(t, ran, "already the right width")
-	require.NoError(t, c.FixWidth(44))
-	require.Equal(t, []string{"tmux resize-pane -t %0 -x 36"}, ran)
-
-	zoomed = "1"
-	ran = nil
-	require.NoError(t, c.FixWidth(44))
-	require.Empty(t, ran, "never while the session is zoomed")
 }

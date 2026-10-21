@@ -157,3 +157,43 @@ func TestStartPassesEnv(t *testing.T) {
 	}
 	require.Contains(t, created, "-c /tmp -e A=1 -e B=2 claude")
 }
+
+// In the sidebar layout the connection kept to each session ignores its size, and new
+// sessions start at the viewer's size, so sessions never jump between sizes.
+func TestSidebarSizing(t *testing.T) {
+	BackgroundClientsIgnoreSize = true
+	NewSessionSize = func() (int, int) { return 228, 62 }
+	defer func() { BackgroundClientsIgnoreSize = false; NewSessionSize = nil }()
+
+	exists := false
+	exec := cmd_test.MockCmdExec{
+		RunFunc: func(c *exec.Cmd) error {
+			if strings.Contains(c.String(), "has-session") && !exists {
+				return fmt.Errorf("no session")
+			}
+			return nil
+		},
+		OutputFunc: func(c *exec.Cmd) ([]byte, error) { return nil, nil },
+	}
+	pty := &MockPtyFactory{t: t}
+	s := NewTmuxSessionWithDeps("sized", "claude", pty, exec)
+	_ = s.Start("/tmp")
+	var created, attached string
+	for _, c := range pty.cmds {
+		switch {
+		case strings.Contains(c.String(), "new-session"):
+			created = c.String()
+		case strings.Contains(c.String(), "attach-session"):
+			attached = c.String()
+		}
+	}
+	require.Contains(t, created, "-x 228 -y 62")
+	exists = true
+	require.NoError(t, s.Restore())
+	for _, c := range pty.cmds {
+		if strings.Contains(c.String(), "attach-session") {
+			attached = c.String()
+		}
+	}
+	require.Contains(t, attached, "attach-session -f ignore-size -t claudesquad_sized")
+}
