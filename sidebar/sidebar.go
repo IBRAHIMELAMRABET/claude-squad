@@ -90,8 +90,10 @@ func (c *Controller) show(name, body string) error {
 	return c.exec.Run(exec.Command("tmux", "respawn-pane", "-k", "-t", viewerTarget, "sh "+shellQuote(script)))
 }
 
-// ShowSession attaches the viewer to a tmux session.
+// ShowSession attaches the viewer to a tmux session. The session is given the viewer's size
+// first, so it is already laid out when it appears and the program inside does not redraw.
 func (c *Controller) ShowSession(sessionName string) error {
+	c.FitSessions([]string{sessionName})
 	return c.show("attach.sh", AttachScript(sessionName))
 }
 
@@ -166,7 +168,7 @@ func (c *Controller) FitSessions(names []string) {
 		return
 	}
 	for _, name := range names {
-		target := "=" + name
+		target := "=" + name + ":" // the session's current window
 		_ = c.exec.Run(exec.Command("tmux", "resize-window", "-t", target, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h)))
 		_ = c.exec.Run(exec.Command("tmux", "set-option", "-w", "-t", target, "window-size", "latest"))
 	}

@@ -134,11 +134,21 @@ func TestFitSessions(t *testing.T) {
 	c := newTestController(t, r)
 	c.FitSessions([]string{"claudesquad_a"})
 	require.Equal(t, []string{
-		"tmux resize-window -t =claudesquad_a -x 228 -y 62",
-		"tmux set-option -w -t =claudesquad_a window-size latest",
+		"tmux resize-window -t =claudesquad_a: -x 228 -y 62",
+		"tmux set-option -w -t =claudesquad_a: window-size latest",
 	}, r.ran)
 
 	r.ran, r.output = nil, ""
 	c.FitSessions([]string{"claudesquad_a"})
 	require.Empty(t, r.ran, "nothing when the viewer size is unknown")
+}
+
+// A session is sized to the viewer before the viewer attaches to it.
+func TestShowSessionFitsFirst(t *testing.T) {
+	r := &recorder{output: "228 62"}
+	c := newTestController(t, r)
+	require.NoError(t, c.ShowSession("claudesquad_a"))
+	require.Len(t, r.ran, 3)
+	require.Equal(t, "tmux resize-window -t =claudesquad_a: -x 228 -y 62", r.ran[0])
+	require.True(t, strings.HasPrefix(r.ran[2], "tmux respawn-pane -k -t =claudesquad_ui:0.0 sh "), r.ran[2])
 }
