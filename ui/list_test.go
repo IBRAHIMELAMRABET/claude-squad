@@ -316,6 +316,22 @@ func TestTextFilterMatchesTitleProjectRepoAndBranch(t *testing.T) {
 	}
 }
 
+// A session renamed in Claude shows and is found by its new name, in both row styles.
+func TestRowsShowTheClaudeName(t *testing.T) {
+	l := newTestList("resumed")
+	l.items[0].Label = "CMI BackOffice"
+	l.SetSize(60, 30)
+	require.Contains(t, l.String(), "CMI BackOffice")
+	require.NotContains(t, l.String(), "resumed")
+	l.SetCompact(true)
+	require.Contains(t, l.String(), "CMI BackOffice")
+
+	l.SetFilter("backoffice")
+	require.Equal(t, []string{"resumed"}, titlesOf(l.visible()))
+	l.SetFilter("resumed")
+	require.Equal(t, []string{"resumed"}, titlesOf(l.visible()), "the original name still matches")
+}
+
 func TestTitleShowsFilterBadgesAndWaitingCount(t *testing.T) {
 	l := newTestList("one", "two", "three")
 	l.items[0].Status = session.Waiting

@@ -80,7 +80,7 @@ func (r *InstanceRenderer) RenderCompact(i *session.Instance, selected bool) str
 	line1 := lipgloss.JoinHorizontal(lipgloss.Left,
 		titleStyle.Render(" "),
 		r.statusIcon(i, bg),
-		titleStyle.Render(fitLeft(i.Title, titleWidth)+" "),
+		titleStyle.Render(fitLeft(i.DisplayTitle(), titleWidth)+" "),
 		metaStyle.Render(age),
 	)
 	if i.Archived {

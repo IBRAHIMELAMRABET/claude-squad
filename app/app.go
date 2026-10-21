@@ -143,6 +143,10 @@ type home struct {
 	repoRoots      map[string]string
 	// scanNow cuts the wait of the pending scan short (see requestScan).
 	scanNow chan struct{}
+	// titleWatcher follows the transcripts of running sessions for /rename; transcripts
+	// maps each Claude session id to its transcript, as of the last scan.
+	titleWatcher *history.TitleWatcher
+	transcripts  map[string]string
 	// width is the last known terminal width; listWidth the columns the list occupies.
 	width     int
 	listWidth int
@@ -338,6 +342,7 @@ func (m *home) Init() tea.Cmd {
 		tickUpdateMetadataCmd(m.snapshotActiveInstances(), m.list.GetSelectedInstance(), m.statusDir),
 		m.scanAdoptCmd(),
 		m.scanHistoryCmd(0),
+		m.watchTitlesCmd(),
 	}
 	if m.sidebar == nil {
 		cmds = append(cmds, func() tea.Msg {
@@ -443,6 +448,9 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.instanceChanged(), next)
 		}
 		return m, next
+	case titleWatchMsg:
+		m.applyTitles(msg.titles)
+		return m, m.watchTitlesCmd()
 	case adoptScanMsg:
 		livePanes := make(map[string]bool, len(msg.panes))
 		for _, p := range msg.panes {

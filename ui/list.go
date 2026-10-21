@@ -299,7 +299,7 @@ func (l *List) matches(i *session.Instance) bool {
 		return true
 	}
 	needle := strings.ToLower(l.filter)
-	for _, hay := range []string{i.Title, groupLabel(groupKey(i), l.labelSegments), i.RepoLabel(), i.Branch} {
+	for _, hay := range []string{i.DisplayTitle(), i.Title, groupLabel(groupKey(i), l.labelSegments), i.RepoLabel(), i.Branch} {
 		if strings.Contains(strings.ToLower(hay), needle) {
 			return true
 		}
@@ -410,7 +410,7 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool) s
 	}
 
 	// Cut the title if it's too long
-	titleText := i.Title
+	titleText := i.DisplayTitle()
 	widthAvail := r.width - 3 - runewidth.StringWidth(prefix) - 1
 	if widthAvail > 0 && runewidth.StringWidth(titleText) > widthAvail {
 		titleText = runewidth.Truncate(titleText, widthAvail-3, "...")

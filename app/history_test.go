@@ -90,6 +90,29 @@ func TestRequestScanWakesThePendingScan(t *testing.T) {
 	}
 }
 
+// A running session renamed in Claude (/rename) shows the new name: from the scan, and
+// sooner from the watcher, which follows its transcript.
+func TestRunningSessionTakesItsClaudeName(t *testing.T) {
+	dirExists = func(string) bool { return true }
+	defer func() { dirExists = func(p string) bool { info, err := os.Stat(p); return err == nil && info.IsDir() } }()
+	h := historyHome(t)
+	running, err := session.NewInstance(session.InstanceOptions{Title: "resumed", Path: t.TempDir(), Program: "claude", ResumeID: "bbbb"})
+	require.NoError(t, err)
+	h.list.AddInstance(running)()
+
+	h.reconcileHistory([]history.Entry{{ID: "bbbb", CWD: "/home/me/repo", Title: "first prompt", Path: "/p/bbbb.jsonl", Updated: time.Now()}})
+	require.Equal(t, "resumed", running.DisplayTitle(), "no /rename yet")
+	require.Equal(t, map[string]string{"bbbb": "/p/bbbb.jsonl"}, h.transcripts, "its transcript is known")
+	require.NotNil(t, h.watchTitlesCmd())
+
+	h.applyTitles(map[string]string{"/p/bbbb.jsonl": "CMI BackOffice", "/p/other.jsonl": "x"})
+	require.Equal(t, "CMI BackOffice", running.DisplayTitle())
+	require.Equal(t, "resumed", running.Title, "the key does not change")
+
+	h.reconcileHistory([]history.Entry{{ID: "bbbb", CWD: "/home/me/repo", Title: "CMI v2", CustomTitle: "CMI v2", Path: "/p/bbbb.jsonl", Updated: time.Now()}})
+	require.Equal(t, "CMI v2", running.DisplayTitle(), "the scan applies the latest rename too")
+}
+
 func TestReconcileHistorySkipsMissingDirectories(t *testing.T) {
 	h := historyHome(t)
 	require.False(t, h.reconcileHistory([]history.Entry{{ID: "gone", CWD: "/definitely/not/here", Title: "x", Updated: time.Now()}}))
@@ -137,6 +160,7 @@ func TestResumeArchivedReplacesTheRow(t *testing.T) {
 	require.NotNil(t, fresh)
 	require.True(t, fresh.InPlace, "resumed sessions run in place")
 	require.Equal(t, "CMIBills CI/CD- pipeline-v2", fresh.Title, "characters tmux rejects are replaced")
+	require.Equal(t, "CMIBills CI/CD: pipeline.v2", fresh.DisplayTitle(), "the row keeps its name")
 	require.Equal(t, "CMIBills", fresh.Project)
 	require.Equal(t, session.Loading, fresh.Status)
 	require.Same(t, fresh, h.list.GetSelectedInstance())

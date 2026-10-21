@@ -28,6 +28,8 @@ type Entry struct {
 	CWD string
 	// Title is the latest custom title set with /rename, or the first prompt, shortened.
 	Title string
+	// CustomTitle is the latest title set with /rename, if any.
+	CustomTitle string
 	// LastPrompt is the most recent prompt recorded in the transcript, if any.
 	LastPrompt string
 	// Updated is the transcript's modification time.
@@ -125,13 +127,14 @@ func (s *Scanner) Scan(projectsDir string, perProject int, maxAge time.Duration)
 				continue
 			}
 			e := Entry{
-				ID:         strings.TrimSuffix(c.name, ".jsonl"),
-				Dir:        d.Name(),
-				CWD:        sum.cwd,
-				Title:      sum.title(),
-				LastPrompt: sum.lastPrompt,
-				Updated:    c.mod,
-				Path:       path,
+				ID:          strings.TrimSuffix(c.name, ".jsonl"),
+				Dir:         d.Name(),
+				CWD:         sum.cwd,
+				Title:       sum.title(),
+				CustomTitle: sum.customTitle,
+				LastPrompt:  sum.lastPrompt,
+				Updated:     c.mod,
+				Path:        path,
 			}
 			if prev, ok := byID[e.ID]; !ok || e.Updated.After(prev.Updated) {
 				byID[e.ID] = e
@@ -286,6 +289,79 @@ func parseTail(tail []byte, sum *summary) {
 			}
 		}
 	}
+}
+
+// TitleWatcher reports titles set with /rename in transcripts that are being written,
+// reading only what was appended since the previous check. It is not safe for concurrent
+// use.
+type TitleWatcher struct {
+	offsets map[string]int64
+}
+
+// NewTitleWatcher returns a TitleWatcher that knows no transcript yet.
+func NewTitleWatcher() *TitleWatcher {
+	return &TitleWatcher{offsets: make(map[string]int64)}
+}
+
+// Check returns, by path, the latest custom title appended to each transcript since the
+// previous check, for those that got one. A transcript seen for the first time is only
+// measured; one no longer passed is forgotten.
+func (w *TitleWatcher) Check(paths []string) map[string]string {
+	titles := make(map[string]string)
+	watched := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		watched[path] = true
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		size := info.Size()
+		offset, known := w.offsets[path]
+		if !known || size < offset {
+			w.offsets[path] = size
+			continue
+		}
+		if size == offset {
+			continue
+		}
+		title, end, err := appendedTitle(path, offset, size)
+		if err != nil {
+			continue
+		}
+		w.offsets[path] = end
+		if title != "" {
+			titles[path] = title
+		}
+	}
+	for path := range w.offsets {
+		if !watched[path] {
+			delete(w.offsets, path)
+		}
+	}
+	return titles
+}
+
+// appendedTitle returns the last custom title in a transcript between offset and size (at
+// most tailBytes of it), and where to continue from: the end of the last complete line,
+// so a line still being written is read again next time.
+func appendedTitle(path string, offset, size int64) (string, int64, error) {
+	if size-offset > tailBytes {
+		offset = size - tailBytes
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", offset, err
+	}
+	defer f.Close()
+	buf := make([]byte, size-offset)
+	n, err := f.ReadAt(buf, offset)
+	if err != nil && err != io.EOF {
+		return "", offset, err
+	}
+	complete := buf[:bytes.LastIndexByte(buf[:n], '\n')+1]
+	var sum summary
+	parseTail(complete, &sum)
+	return sum.customTitle, offset + int64(len(complete)), nil
 }
 
 // messageText extracts the text of a user message: either a string or a list of content

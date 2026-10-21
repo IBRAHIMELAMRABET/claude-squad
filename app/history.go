@@ -81,6 +81,62 @@ func (m *home) scanHistoryCmd(delay time.Duration) tea.Cmd {
 	}
 }
 
+// titleWatchInterval is how often the transcripts of running sessions are checked for a
+// new name (/rename). Only what was appended is read.
+const titleWatchInterval = 2 * time.Second
+
+// titleWatchMsg carries the names set since the previous check, by transcript path.
+type titleWatchMsg struct {
+	titles map[string]string
+}
+
+// watchTitlesCmd checks the transcripts of running sessions for /rename after
+// titleWatchInterval. Checks never overlap: the next one is scheduled when this one's
+// result arrives.
+func (m *home) watchTitlesCmd() tea.Cmd {
+	if m.appConfig.DisableHistory {
+		return nil
+	}
+	if m.titleWatcher == nil {
+		m.titleWatcher = history.NewTitleWatcher()
+	}
+	watcher := m.titleWatcher
+	var paths []string
+	for _, inst := range m.list.GetInstances() {
+		if path, ok := m.transcripts[claudeID(inst)]; ok && !inst.Archived {
+			paths = append(paths, path)
+		}
+	}
+	return func() tea.Msg {
+		time.Sleep(titleWatchInterval)
+		return titleWatchMsg{titles: watcher.Check(paths)}
+	}
+}
+
+// applyTitles names running sessions after the titles found in their transcripts.
+func (m *home) applyTitles(titles map[string]string) {
+	if len(titles) == 0 {
+		return
+	}
+	for _, inst := range m.list.GetInstances() {
+		if inst.Archived {
+			continue
+		}
+		if title, ok := titles[m.transcripts[claudeID(inst)]]; ok {
+			inst.Label = history.Shorten(title, 48)
+		}
+	}
+}
+
+// claudeID is the id of the Claude session a running session writes its transcript as:
+// the one hooks reported, else the one it resumed.
+func claudeID(inst *session.Instance) string {
+	if inst.ClaudeSessionID != "" {
+		return inst.ClaudeSessionID
+	}
+	return inst.ResumeID
+}
+
 // requestScan makes the pending scan run now instead of after its delay.
 func (m *home) requestScan() {
 	select {
@@ -92,9 +148,16 @@ func (m *home) requestScan() {
 // reconcileHistory merges the scanned past sessions into the list: entries already
 // represented by a running session (resumed, or reporting that id through hooks) and
 // entries under ignored directories are left out; vanished ones are removed; existing rows
-// are refreshed. It reports whether the list changed.
+// are refreshed. Running sessions take the name set with /rename in their transcript. It
+// reports whether the list changed.
 func (m *home) reconcileHistory(entries []history.Entry) bool {
 	m.claimTranscripts(entries)
+	byID := make(map[string]history.Entry, len(entries))
+	m.transcripts = make(map[string]string, len(entries))
+	for _, e := range entries {
+		byID[e.ID] = e
+		m.transcripts[e.ID] = e.Path
+	}
 	live := make(map[string]bool)
 	for _, inst := range m.list.GetInstances() {
 		if inst.Archived {
@@ -105,6 +168,9 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 		}
 		if inst.ClaudeSessionID != "" {
 			live[inst.ClaudeSessionID] = true
+		}
+		if e, ok := byID[claudeID(inst)]; ok && e.CustomTitle != "" {
+			inst.Label = history.Shorten(e.CustomTitle, 48)
 		}
 	}
 
@@ -237,6 +303,8 @@ func (m *home) resumeArchived(archived *session.Instance) tea.Cmd {
 	}
 	fresh.Project = archived.Project
 	fresh.Summary = archived.Summary
+	// Keep showing the name of the row it replaces; Title may have been cut or rewritten.
+	fresh.Label = archived.Title
 
 	m.newInstanceFinalizer = m.list.AddInstance(fresh)
 	fresh.SetStatus(session.Loading)

@@ -78,7 +78,9 @@ func TestScan(t *testing.T) {
 	require.Equal(t, []string{"11111111", "44444444", "22222222"}, ids, "newest first, limit per project, one per id")
 	require.Equal(t, "-home-me-repo", entries[0].Dir, "the newer copy of the duplicated id wins")
 	require.Equal(t, "CMIBills CI/CD", entries[0].Title)
+	require.Equal(t, "CMIBills CI/CD", entries[0].CustomTitle)
 	require.Equal(t, "/home/me/repo", entries[1].CWD)
+	require.Empty(t, entries[1].CustomTitle, "never renamed: titled by its first prompt only")
 	require.WithinDuration(t, now.Add(-10*time.Minute), entries[0].Updated, time.Second)
 
 	all, err := Scan(root, 0, 0)
@@ -118,4 +120,39 @@ func TestRenamedSessionTitleComesFromTheTail(t *testing.T) {
 
 	sum := ParseHead(strings.NewReader(body))
 	require.Equal(t, "old name", sum.customTitle, "the head alone only knows the old name")
+}
+
+// The watcher reads only what was appended to a transcript, and a line still being written
+// is read again once complete.
+func TestTitleWatcher(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	appendLine := func(s string) {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		require.NoError(t, err)
+		_, err = f.WriteString(s)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+	}
+	rename := func(name string) string {
+		return `{"type":"custom-title","customTitle":"` + name + `","sessionId":"a"}`
+	}
+	appendLine(rename("old") + "\n")
+
+	w := NewTitleWatcher()
+	require.Empty(t, w.Check([]string{path}), "the first check only measures the file")
+	require.Empty(t, w.Check([]string{path}), "nothing appended")
+
+	appendLine(`{"type":"user","cwd":"/x","message":{"role":"user","content":"hi"}}` + "\n" + rename("CMI BackOffice") + "\n")
+	require.Equal(t, map[string]string{path: "CMI BackOffice"}, w.Check([]string{path}))
+	require.Empty(t, w.Check([]string{path}), "an old rename is not reported twice")
+
+	half := rename("Fawri deploy")
+	appendLine(half[:20])
+	require.Empty(t, w.Check([]string{path}), "a line still being written waits")
+	appendLine(half[20:] + "\n")
+	require.Equal(t, map[string]string{path: "Fawri deploy"}, w.Check([]string{path}))
+
+	require.Empty(t, w.Check(nil))
+	require.Empty(t, w.offsets, "a transcript no longer watched is forgotten")
+	require.Empty(t, w.Check([]string{filepath.Join(t.TempDir(), "missing.jsonl")}))
 }

@@ -92,6 +92,10 @@ type Instance struct {
 	Archived bool
 	// Summary is a short description shown for archived sessions (last prompt).
 	Summary string
+	// Label is the name Claude knows the session by (its /rename title, or the title of the
+	// past row it was resumed from), shown instead of Title when set. Title stays the
+	// session's key (tmux session name, storage). Not persisted.
+	Label string
 	// GroupPath, when set, is the path the session is grouped by instead of its own path
 	// (the main repository of a worktree, for past sessions).
 	GroupPath string
@@ -426,6 +430,14 @@ func (i *Instance) RepoLabel() string {
 		return i.gitWorktree.GetRepoName()
 	}
 	return filepath.Base(i.Path)
+}
+
+// DisplayTitle is the name shown for the session: its Claude name when it has one.
+func (i *Instance) DisplayTitle() string {
+	if i.Label != "" {
+		return i.Label
+	}
+	return i.Title
 }
 
 // ProjectPath is the path used to resolve the session's project: the repository root when
