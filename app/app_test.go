@@ -5,6 +5,7 @@ import (
 	"claude-squad/config"
 	"claude-squad/log"
 	"claude-squad/session"
+	"claude-squad/session/git"
 	"claude-squad/session/tmux"
 	"claude-squad/sidebar"
 	"claude-squad/ui"
@@ -653,6 +654,51 @@ func TestNamingLeftRightPicksRepo(t *testing.T) {
 	require.Equal(t, "/mnt/c/Projects/CMIBills/Code/Api", inst.Path)
 }
 
+// n starts in the folder of the row under the cursor, a session's or a folder group's,
+// and a folder outside any repository gets an in-place session that tab cannot switch.
+func TestNewSessionStartsInTheSelectedFolder(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	plain := t.TempDir()
+	isRepo = func(p string) bool { return p != plain }
+	defer func() { isRepo = func(p string) bool { _, err := git.FindGitRepoRoot(p); return err == nil } }()
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	h := &home{
+		ctx:          context.Background(),
+		state:        stateDefault,
+		appConfig:    &config.Config{DefaultMode: config.ModeWorktree},
+		appState:     config.DefaultState(),
+		list:         ui.NewList(&spinner, false),
+		menu:         ui.NewMenu(),
+		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
+		errBox:       ui.NewErrBox(),
+	}
+	existing := session.NewArchivedInstance("id", "notes", plain, "", time.Now())
+	h.list.AddInstance(existing)()
+	h.list.SelectInstance(existing)
+	press := func(msg tea.KeyMsg) {
+		h.keySent = true
+		h.handleKeyPress(msg)
+	}
+
+	press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	require.Equal(t, stateNew, h.state)
+	fresh := h.list.GetSelectedInstance()
+	require.NotSame(t, existing, fresh)
+	require.Equal(t, plain, fresh.Path, "the selected session's folder comes first")
+	require.True(t, fresh.InPlace, "not a repository: in place whatever default_mode says")
+	press(tea.KeyMsg{Type: tea.KeyTab})
+	require.True(t, fresh.InPlace, "tab cannot make a worktree outside a repository")
+
+	if len(h.repoChoices) > 1 {
+		press(tea.KeyMsg{Type: tea.KeyRight})
+		require.False(t, fresh.InPlace, "a repository gets default_mode again")
+	}
+	press(tea.KeyMsg{Type: tea.KeyEsc})
+
+	require.Equal(t, []string{"/a", "/b", "/c"}, withFirst("/a", []string{"/b", "/a", "/c"}))
+	require.Equal(t, []string{"/b"}, withFirst("", []string{"/b"}))
+}
+
 // sidebarHome builds a home in sidebar mode with a tmux executor that records commands.
 func sidebarHome(t *testing.T, ran *[]string) *home {
 	t.Setenv("HOME", t.TempDir())
@@ -855,9 +901,10 @@ func TestMouseInSidebar(t *testing.T) {
 	require.Equal(t, "a1", h.list.GetSelectedInstance().Title, "clicking a row selects it")
 }
 
-// When the program of a session running in place exits, the session leaves the list (its
-// transcript comes back as a past session); a worktree session would be kept, paused.
-func TestEndedInPlaceSessionLeavesTheList(t *testing.T) {
+// A session whose tmux session is gone (its program exited, or WSL took the tmux server
+// down) never leaves the list: it stays paused, and a new session remembers its Claude
+// conversation so resuming continues it.
+func TestEndedSessionsStayPaused(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	h := &home{
@@ -874,12 +921,22 @@ func TestEndedInPlaceSessionLeavesTheList(t *testing.T) {
 	require.NoError(t, err)
 	worktree, err := session.NewInstance(session.InstanceOptions{Title: "wt", Path: t.TempDir(), Program: "claude"})
 	require.NoError(t, err)
+	fresh, err := session.NewInstance(session.InstanceOptions{Title: "new", Path: t.TempDir(), Program: "claude", InPlace: true})
+	require.NoError(t, err)
+	fresh.ClaudeSessionID = "def"
 	h.list.AddInstance(inplace)()
 	h.list.AddInstance(worktree)()
+	h.list.AddInstance(fresh)()
 
 	h.Update(metadataUpdateDoneMsg{results: []instanceMetaResult{
 		{instance: inplace, gone: true},
 		{instance: worktree, gone: true},
+		{instance: fresh, gone: true},
 	}})
-	require.Equal(t, []*session.Instance{worktree}, h.list.GetInstances())
+	require.ElementsMatch(t, []*session.Instance{inplace, worktree, fresh}, h.list.GetInstances(), "nothing goes away")
+	for _, inst := range h.list.GetInstances() {
+		require.Equal(t, session.Paused, inst.Status, "%s is parked, no longer polled", inst.Title)
+	}
+	require.Equal(t, "abc", inplace.ResumeID)
+	require.Equal(t, "def", fresh.ResumeID, "resuming continues its conversation")
 }

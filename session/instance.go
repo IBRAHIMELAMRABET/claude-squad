@@ -432,6 +432,19 @@ func (i *Instance) RepoLabel() string {
 	return filepath.Base(i.Path)
 }
 
+// MarkEnded parks a session whose tmux session is gone (its program exited, or the tmux
+// server went away, as when WSL stops): it stays listed, paused, and resuming it continues
+// its Claude conversation where it ran.
+func (i *Instance) MarkEnded() {
+	if i.ResumeID == "" && i.ClaudeSessionID != "" {
+		i.ResumeID = i.ClaudeSessionID
+	}
+	if i.tmuxSession != nil {
+		i.tmuxSession.SetProgram(i.launchProgram())
+	}
+	i.SetStatus(Paused)
+}
+
 // DisplayTitle is the name shown for the session: its Claude name when it has one.
 func (i *Instance) DisplayTitle() string {
 	if i.Label != "" {
@@ -482,17 +495,12 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 		if info, err := os.Stat(i.Path); err != nil || !info.IsDir() {
 			return fmt.Errorf("directory %s does not exist", i.Path)
 		}
-		// A resumed session stays in the directory it was recorded in; a fresh in-place
-		// session moves to the repository root. Outside a repository there is no branch.
+		// An in-place session runs in the directory it was given, which need not be a
+		// repository root, or a repository at all; outside one there is no branch.
 		if root, err := git.FindGitRepoRoot(i.Path); err == nil {
-			if i.ResumeID == "" {
-				i.Path = root
-			}
 			if branch, err := git.CurrentBranch(root); err == nil {
 				i.Branch = branch
 			}
-		} else if i.ResumeID == "" {
-			return err
 		}
 	} else if firstTimeSetup {
 		if i.selectedBranch != "" {

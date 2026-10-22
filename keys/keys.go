@@ -184,7 +184,7 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	),
 	KeyPickRepo: key.NewBinding(
 		key.WithKeys("left", "right"),
-		key.WithHelp("←/→", "repository"),
+		key.WithHelp("←/→", "folder"),
 	),
 	KeyFocus: key.NewBinding(
 		key.WithKeys("enter", "o"),

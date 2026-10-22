@@ -56,8 +56,9 @@ func TestExpandPattern(t *testing.T) {
 }
 
 func TestCanStartWithoutRepo(t *testing.T) {
-	require.False(t, CanStartWithoutRepo(&config.Config{}, false))
-	require.True(t, CanStartWithoutRepo(&config.Config{}, true))
+	require.False(t, CanStartWithoutRepo(&config.Config{DisableHistory: true}, false))
+	require.True(t, CanStartWithoutRepo(&config.Config{}, false), "past sessions are listed")
+	require.True(t, CanStartWithoutRepo(&config.Config{DisableHistory: true}, true))
 	require.True(t, CanStartWithoutRepo(&config.Config{ProjectsRoot: "/p"}, false))
 	require.True(t, CanStartWithoutRepo(&config.Config{Projects: []config.Project{{Name: "x"}}}, false))
 }

@@ -117,10 +117,12 @@ type home struct {
 
 	// promptAfterName tracks if we should enter prompt mode after naming
 	promptAfterName bool
-	// repoChoices are the repositories offered while naming a new session; repoIdx is the
-	// one currently picked.
+	// repoChoices are the folders offered while naming a new session; repoIdx is the one
+	// currently picked. newInPlace is the mode picked with tab, which a folder outside any
+	// repository overrides.
 	repoChoices []string
 	repoIdx     int
+	newInPlace  bool
 
 	// keySent is used to manage underlining menu items
 	keySent bool
@@ -141,8 +143,6 @@ type home struct {
 	// are filled by the background scan.
 	historyScanner *history.Scanner
 	repoRoots      map[string]string
-	// scanNow cuts the wait of the pending scan short (see requestScan).
-	scanNow chan struct{}
 	// titleWatcher follows the transcripts of running sessions for /rename; transcripts
 	// maps each Claude session id to its transcript, as of the last scan.
 	titleWatcher *history.TitleWatcher
@@ -225,17 +225,8 @@ func newHome(ctx context.Context, program string, autoYes bool) *home {
 		os.Exit(1)
 	}
 
-	// Add loaded instances to the list. A session that ran in place and is now paused had its
-	// program exit (in-place sessions cannot be paused otherwise): it is listed again from
-	// its transcript instead.
-	kept := instances[:0]
-	for _, instance := range instances {
-		if instance.InPlace && instance.Paused() {
-			continue
-		}
-		kept = append(kept, instance)
-	}
-	instances = kept
+	// Add loaded instances to the list. Sessions that ended, or whose tmux server went away
+	// since the last run, come back paused, where they were.
 	for _, instance := range instances {
 		instance.Project = appConfig.GroupFor(instance.ProjectPath())
 		// Call the finalizer immediately.
@@ -497,10 +488,11 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if r.instance.Status == session.Paused {
 				continue
 			}
-			// A session running in place whose program exited has nothing left to keep: drop
-			// it, and its transcript is listed again as a past session to resume.
-			if r.gone && r.instance.InPlace && !r.instance.Adopted {
-				m.list.Remove(r.instance)
+			// A session whose tmux session is gone (its program exited, or the tmux server
+			// went away) stays where it is, paused: enter continues it, D deletes it.
+			if r.gone && !r.instance.Adopted {
+				log.WarningLog.Printf("session %q ended; keeping it paused so it can be resumed", r.instance.Title)
+				r.instance.MarkEnded()
 				ended = true
 				continue
 			}
@@ -526,8 +518,6 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
 				log.WarningLog.Printf("could not save instances: %v", err)
 			}
-			// Rescan now so the ended session reappears as a past one without waiting.
-			m.requestScan()
 			cmds = append(cmds, m.instanceChanged())
 		}
 		return m, tea.Batch(cmds...)
@@ -742,7 +732,11 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 				return m, m.handleError(err)
 			}
 		case tea.KeyTab:
-			instance.InPlace = !instance.InPlace
+			if !isRepo(instance.Path) {
+				return m, m.handleError(fmt.Errorf("not a git repo: in place only"))
+			}
+			m.newInPlace = !m.newInPlace
+			instance.InPlace = m.newInPlace
 			return m, m.instanceChanged()
 		case tea.KeyLeft, tea.KeyRight:
 			if len(m.repoChoices) > 1 {
@@ -753,6 +747,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 				m.repoIdx = (m.repoIdx + step) % len(m.repoChoices)
 				instance.Path = m.repoChoices[m.repoIdx]
 				instance.Project = m.appConfig.GroupFor(instance.Path)
+				instance.InPlace = m.newInPlace || !isRepo(instance.Path)
 			}
 			return m, m.instanceChanged()
 		case tea.KeyEsc:
@@ -1152,20 +1147,23 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 // errNotManaged is shown when a managed-only action targets an adopted session.
 var errNotManaged = fmt.Errorf("this session was not created by claude-squad: open it with enter")
 
-// newInstanceInPickedRepo prepares an unnamed instance in the first known repository and
-// records the alternatives the user can cycle through with left/right while naming it.
+// newInstanceInPickedRepo prepares an unnamed instance in the folder of the row under the
+// cursor, else in the first known repository, and records the alternatives the user can
+// cycle through with left/right while naming it. A folder outside any repository gets an
+// in-place session.
 func (m *home) newInstanceInPickedRepo() (*session.Instance, error) {
 	cwd, _ := os.Getwd()
-	m.repoChoices = knownRepos(cwd, m.appConfig, m.list.GetInstances())
+	m.repoChoices = withFirst(m.selectedFolder(), knownRepos(cwd, m.appConfig, m.list.GetInstances()))
 	m.repoIdx = 0
 	if len(m.repoChoices) == 0 {
-		return nil, fmt.Errorf("no repository to create a session in: run inside a git repository or configure projects")
+		return nil, fmt.Errorf("no folder to create a session in: select a session or configure projects")
 	}
+	m.newInPlace = m.appConfig.InPlaceByDefault()
 	instance, err := session.NewInstance(session.InstanceOptions{
 		Title:   "",
 		Path:    m.repoChoices[0],
 		Program: m.program,
-		InPlace: m.appConfig.InPlaceByDefault(),
+		InPlace: m.newInPlace || !isRepo(m.repoChoices[0]),
 	})
 	if err != nil {
 		return nil, err

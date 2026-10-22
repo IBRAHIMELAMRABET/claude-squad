@@ -54,10 +54,19 @@ func TestSidebarNamingMenuShowsRepoAndMode(t *testing.T) {
 	m.SetState(StateNewInstance)
 
 	out := m.String()
-	require.Contains(t, out, "Backend")
+	require.Contains(t, out, "repos/Backend")
 	require.Contains(t, out, "in-place")
-	require.Contains(t, out, "repository", "the left/right hint")
+	require.Contains(t, out, "folder", "the left/right hint")
 	for _, l := range strings.Split(out, "\n") {
 		require.LessOrEqual(t, lipgloss.Width(l), 36, "line too wide: %q", l)
 	}
+}
+
+// The folder is named by its last three segments, so a WSL copy and a Windows copy of the
+// same repository look different, and a long name is cut from the left.
+func TestFolderLabel(t *testing.T) {
+	require.Equal(t, "home/brahim/Fawri_Infra", folderLabel("/home/brahim/Fawri_Infra", 40))
+	require.Equal(t, "Fawri/Code/Wafacash", folderLabel("/mnt/c/Users/me/Projects/Fawri/Code/Wafacash", 40))
+	require.Equal(t, "…ode/Wafacash", folderLabel("/mnt/c/Users/me/Projects/Fawri/Code/Wafacash", 13))
+	require.Equal(t, "me/Projects/AIStudio", folderLabel(`C:\Users\me\Projects\AIStudio`, 40), "Windows separators too")
 }

@@ -224,13 +224,38 @@ func TestStartInPlace(t *testing.T) {
 
 	require.NoError(t, inst.Start(true))
 	require.Equal(t, Running, inst.Status)
-	require.Equal(t, repo, inst.Path, "the session runs at the repository root")
-	require.Equal(t, "trunk", inst.Branch)
+	sub := filepath.Join(repo, "sub")
+	require.Equal(t, sub, inst.Path, "the session runs in the folder it was given")
+	require.Equal(t, "trunk", inst.Branch, "on the repository's branch")
 	require.Equal(t, "", inst.GetWorktreePath())
-	require.Equal(t, repo, inst.WorkDir())
-	require.Equal(t, repo, inst.HookCWD())
+	require.Equal(t, sub, inst.WorkDir())
+	require.Equal(t, sub, inst.HookCWD())
 	require.True(t, inst.ToInstanceData().InPlace)
 	require.Error(t, inst.Pause(), "checkout does not apply in place")
+}
+
+// Any existing folder can host an in-place session, a repository or not.
+func TestStartInPlaceOutsideARepository(t *testing.T) {
+	dir := t.TempDir()
+	inst, err := NewInstance(InstanceOptions{Title: "notes", Path: dir, Program: "claude", InPlace: true})
+	require.NoError(t, err)
+	pty := &nullPtyFactory{t: t}
+	inst.SetTmuxSession(tmux.NewTmuxSessionWithDeps("notes", "claude", pty,
+		cmd_test.MockCmdExec{RunFunc: func(cmd *exec.Cmd) error {
+			if strings.Contains(cmd.String(), "has-session") && pty.calls == 0 {
+				return fmt.Errorf("can't find session")
+			}
+			return nil
+		}}))
+
+	require.NoError(t, inst.Start(true))
+	require.Equal(t, Running, inst.Status)
+	require.Equal(t, dir, inst.WorkDir())
+	require.Empty(t, inst.Branch, "no repository, no branch")
+
+	missing, err := NewInstance(InstanceOptions{Title: "gone", Path: filepath.Join(dir, "missing"), Program: "claude", InPlace: true})
+	require.NoError(t, err)
+	require.Error(t, missing.Start(true), "the folder must exist")
 }
 
 func TestFromInstanceDataKeepsInPlaceWithoutWorktree(t *testing.T) {

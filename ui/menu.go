@@ -243,6 +243,20 @@ func (m *Menu) helpDesc(k keys.KeyName) string {
 // SidebarMenuHeight is the number of lines reserved for the compact menu.
 const SidebarMenuHeight = 6
 
+// folderLabel names a folder by its last three path segments, cut from the left to at most
+// width runes, so the same name in two places (a Windows and a WSL copy) can be told apart.
+func folderLabel(path string, width int) string {
+	parts := strings.Split(strings.Trim(strings.ReplaceAll(path, "\\", "/"), "/"), "/")
+	if len(parts) > 3 {
+		parts = parts[len(parts)-3:]
+	}
+	label := []rune(strings.Join(parts, "/"))
+	if width > 1 && len(label) > width {
+		label = append([]rune("…"), label[len(label)-width+1:]...)
+	}
+	return string(label)
+}
+
 // compactString lays the options out left-aligned on as many lines as needed to fit the
 // width, for the narrow sidebar pane.
 func (m *Menu) compactString() string {
@@ -253,7 +267,9 @@ func (m *Menu) compactString() string {
 		if m.instance.InPlace {
 			mode = "in-place"
 		}
-		lines = append(lines, descStyle.Render("in ")+keyStyle.Render(m.instance.RepoLabel())+descStyle.Render(" · "+mode))
+		lines = append(lines,
+			descStyle.Render("in ")+keyStyle.Render(folderLabel(m.instance.Path, m.width-3)),
+			keyStyle.Render(mode)+descStyle.Render(" session"))
 	}
 	line := ""
 	for _, k := range m.options {

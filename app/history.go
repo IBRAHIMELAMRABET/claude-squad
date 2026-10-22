@@ -27,8 +27,7 @@ type historyScanMsg struct {
 }
 
 // scanHistoryCmd lists past sessions in the background. The first scan runs at once, later
-// ones after historyScanInterval, or sooner on requestScan. It is a no-op when history is
-// disabled.
+// ones after historyScanInterval. It is a no-op when history is disabled.
 func (m *home) scanHistoryCmd(delay time.Duration) tea.Cmd {
 	if m.appConfig.DisableHistory {
 		return nil
@@ -37,21 +36,15 @@ func (m *home) scanHistoryCmd(delay time.Duration) tea.Cmd {
 	if m.historyScanner == nil {
 		m.historyScanner = history.NewScanner()
 	}
-	if m.scanNow == nil {
-		m.scanNow = make(chan struct{}, 1)
-	}
 	// The scanner is only used by this command, and scans never overlap: the next one is
 	// scheduled when this one's result arrives. Starting another chain would break that.
-	scanner, wake := m.historyScanner, m.scanNow
+	scanner := m.historyScanner
 	known := make(map[string]bool, len(m.repoRoots))
 	for dir := range m.repoRoots {
 		known[dir] = true
 	}
 	return func() tea.Msg {
-		select {
-		case <-time.After(delay):
-		case <-wake:
-		}
+		time.Sleep(delay)
 		dir, err := history.ProjectsDir()
 		if err != nil {
 			log.WarningLog.Printf("history disabled: %v", err)
@@ -135,14 +128,6 @@ func claudeID(inst *session.Instance) string {
 		return inst.ClaudeSessionID
 	}
 	return inst.ResumeID
-}
-
-// requestScan makes the pending scan run now instead of after its delay.
-func (m *home) requestScan() {
-	select {
-	case m.scanNow <- struct{}{}:
-	default: // a request is already pending, or history is disabled
-	}
 }
 
 // reconcileHistory merges the scanned past sessions into the list: entries already

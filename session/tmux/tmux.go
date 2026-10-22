@@ -246,6 +246,11 @@ func (t *TmuxSession) SetEnv(env []string) {
 	t.env = env
 }
 
+// SetProgram replaces the command the next Start runs.
+func (t *TmuxSession) SetProgram(program string) {
+	t.program = program
+}
+
 // Name returns the tmux session name.
 func (t *TmuxSession) Name() string {
 	return t.sanitizedName
