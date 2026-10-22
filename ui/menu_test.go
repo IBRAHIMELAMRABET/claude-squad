@@ -65,8 +65,8 @@ func TestSidebarNamingMenuShowsRepoAndMode(t *testing.T) {
 // The folder is named by its last three segments, so a WSL copy and a Windows copy of the
 // same repository look different, and a long name is cut from the left.
 func TestFolderLabel(t *testing.T) {
-	require.Equal(t, "home/brahim/Fawri_Infra", folderLabel("/home/brahim/Fawri_Infra", 40))
-	require.Equal(t, "Fawri/Code/Wafacash", folderLabel("/mnt/c/Users/me/Projects/Fawri/Code/Wafacash", 40))
-	require.Equal(t, "…ode/Wafacash", folderLabel("/mnt/c/Users/me/Projects/Fawri/Code/Wafacash", 13))
-	require.Equal(t, "me/Projects/AIStudio", folderLabel(`C:\Users\me\Projects\AIStudio`, 40), "Windows separators too")
+	require.Equal(t, "home/alex/Orbit_Infra", folderLabel("/home/alex/Orbit_Infra", 40))
+	require.Equal(t, "Orbit/Code/Payments", folderLabel("/mnt/c/Users/me/Projects/Orbit/Code/Payments", 40))
+	require.Equal(t, "…ode/Payments", folderLabel("/mnt/c/Users/me/Projects/Orbit/Code/Payments", 13))
+	require.Equal(t, "me/Projects/Atelier", folderLabel(`C:\Users\me\Projects\Atelier`, 40), "Windows separators too")
 }

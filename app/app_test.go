@@ -570,7 +570,7 @@ func TestReconcileAdopted(t *testing.T) {
 	}
 	panes := []tmux.Pane{
 		{Session: "claudesquad_mine", ID: "%1", Command: "claude", Path: "/wt/mine"},
-		{Session: "scratch", ID: "%2", Command: "claude", Path: "/mnt/c/Projects/Fawri/Code/Backend"},
+		{Session: "scratch", ID: "%2", Command: "claude", Path: "/mnt/c/Projects/Orbit/Code/Backend"},
 		{Session: "shell", ID: "%3", Command: "zsh", Path: "/home/user"},
 	}
 
@@ -579,7 +579,7 @@ func TestReconcileAdopted(t *testing.T) {
 	adopted := h.list.GetInstances()[0]
 	require.True(t, adopted.Adopted)
 	require.Equal(t, "scratch", adopted.Title)
-	require.Equal(t, "Fawri", adopted.Project, "projects resolve from the pane path")
+	require.Equal(t, "Orbit", adopted.Project, "projects resolve from the pane path")
 
 	require.False(t, h.reconcileAdopted(panes), "nothing new: no change")
 	require.Same(t, adopted, h.list.GetInstances()[0], "the existing instance is kept, not recreated")
@@ -635,7 +635,7 @@ func TestNamingLeftRightPicksRepo(t *testing.T) {
 		menu:         ui.NewMenu(),
 		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane()),
 		errBox:       ui.NewErrBox(),
-		repoChoices:  []string{"/mnt/c/Projects/Fawri/Code/Backend", "/mnt/c/Projects/CMIBills/Code/Api"},
+		repoChoices:  []string{"/mnt/c/Projects/Orbit/Code/Backend", "/mnt/c/Projects/Bank/Code/Api"},
 	}
 	inst, err := session.NewInstance(session.InstanceOptions{Title: "", Path: h.repoChoices[0], Program: "claude"})
 	require.NoError(t, err)
@@ -646,12 +646,12 @@ func TestNamingLeftRightPicksRepo(t *testing.T) {
 	}
 
 	press(tea.KeyMsg{Type: tea.KeyRight})
-	require.Equal(t, "/mnt/c/Projects/CMIBills/Code/Api", inst.Path)
-	require.Equal(t, "CMIBills", inst.Project, "the project follows the picked repository")
+	require.Equal(t, "/mnt/c/Projects/Bank/Code/Api", inst.Path)
+	require.Equal(t, "Bank", inst.Project, "the project follows the picked repository")
 	press(tea.KeyMsg{Type: tea.KeyRight})
-	require.Equal(t, "/mnt/c/Projects/Fawri/Code/Backend", inst.Path, "wraps")
+	require.Equal(t, "/mnt/c/Projects/Orbit/Code/Backend", inst.Path, "wraps")
 	press(tea.KeyMsg{Type: tea.KeyLeft})
-	require.Equal(t, "/mnt/c/Projects/CMIBills/Code/Api", inst.Path)
+	require.Equal(t, "/mnt/c/Projects/Bank/Code/Api", inst.Path)
 }
 
 // n starts in the folder of the row under the cursor, a session's or a folder group's,

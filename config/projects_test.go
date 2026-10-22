@@ -17,30 +17,30 @@ func TestProjectFor(t *testing.T) {
 	cfg := &Config{
 		ProjectsRoot: "/mnt/c/Projects",
 		Projects: []Project{
-			{Name: "Fawri", Color: "#4C9AFF", Paths: []string{"~/Fawri_Infra", "/srv/fawri/**"}},
-			{Name: "Sentinel", Paths: []string{"/mnt/c/Projects/Platform/Sentinel*"}},
-			{Name: "Shadow", Paths: []string{"/mnt/c/Projects/Fawri"}},
+			{Name: "Orbit", Color: "#4C9AFF", Paths: []string{"~/Orbit_Infra", "/srv/orbit/**"}},
+			{Name: "Radar", Paths: []string{"/mnt/c/Projects/Platform/Radar*"}},
+			{Name: "Shadow", Paths: []string{"/mnt/c/Projects/Orbit"}},
 		},
 	}
 
 	cases := []struct {
 		name, path, want string
 	}{
-		{"explicit directory", filepath.Join(home, "Fawri_Infra"), "Fawri"},
-		{"explicit directory, cwd inside it", filepath.Join(home, "Fawri_Infra", "ansible"), "Fawri"},
-		{"explicit directory does not match a sibling prefix", filepath.Join(home, "Fawri_Infra2"), ""},
-		{"double-star pattern", "/srv/fawri/api", "Fawri"},
-		{"double-star pattern matches the base itself", "/srv/fawri", "Fawri"},
-		{"glob pattern", "/mnt/c/Projects/Platform/SentinelApi", "Sentinel"},
-		{"glob pattern, cwd inside the repo", "/mnt/c/Projects/Platform/SentinelApi/src", "Sentinel"},
+		{"explicit directory", filepath.Join(home, "Orbit_Infra"), "Orbit"},
+		{"explicit directory, cwd inside it", filepath.Join(home, "Orbit_Infra", "ansible"), "Orbit"},
+		{"explicit directory does not match a sibling prefix", filepath.Join(home, "Orbit_Infra2"), ""},
+		{"double-star pattern", "/srv/orbit/api", "Orbit"},
+		{"double-star pattern matches the base itself", "/srv/orbit", "Orbit"},
+		{"glob pattern", "/mnt/c/Projects/Platform/RadarApi", "Radar"},
+		{"glob pattern, cwd inside the repo", "/mnt/c/Projects/Platform/RadarApi/src", "Radar"},
 		{"glob pattern does not cross into unrelated folders", "/mnt/c/Projects/Platform/Other", "Platform"},
-		{"explicit mapping wins over the folder rule", "/mnt/c/Projects/Fawri/Code/Backend", "Shadow"},
-		{"folder rule: first segment under the root", "/mnt/c/Projects/CMIBills/Code/Backend", "CMIBills"},
-		{"folder rule: repo directly under the root", "/mnt/c/Projects/Umnia", "Umnia"},
+		{"explicit mapping wins over the folder rule", "/mnt/c/Projects/Orbit/Code/Backend", "Shadow"},
+		{"folder rule: first segment under the root", "/mnt/c/Projects/Bank/Code/Backend", "Bank"},
+		{"folder rule: repo directly under the root", "/mnt/c/Projects/Vale", "Vale"},
 		{"folder rule: the root itself has no project", "/mnt/c/Projects", ""},
 		{"outside everything", "/home/someone/scratch", ""},
 		{"empty path", "", ""},
-		{"unclean path", "/mnt/c/Projects//CMIBills/./Code/../Code", "CMIBills"},
+		{"unclean path", "/mnt/c/Projects//Bank/./Code/../Code", "Bank"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -54,8 +54,8 @@ func TestProjectForWithoutConfig(t *testing.T) {
 }
 
 func TestProjectColor(t *testing.T) {
-	cfg := &Config{Projects: []Project{{Name: "Fawri", Color: "#4C9AFF"}, {Name: "Plain"}}}
-	assert.Equal(t, "#4C9AFF", cfg.ProjectColor("Fawri"))
+	cfg := &Config{Projects: []Project{{Name: "Orbit", Color: "#4C9AFF"}, {Name: "Plain"}}}
+	assert.Equal(t, "#4C9AFF", cfg.ProjectColor("Orbit"))
 	assert.Equal(t, "", cfg.ProjectColor("Plain"))
 	assert.Equal(t, "", cfg.ProjectColor("Unknown"))
 }
@@ -63,7 +63,7 @@ func TestProjectColor(t *testing.T) {
 func TestProjectsRoundTripThroughConfigFile(t *testing.T) {
 	cfg := &Config{
 		ProjectsRoot: "/mnt/c/Projects",
-		Projects:     []Project{{Name: "Fawri", Color: "#4C9AFF", Paths: []string{"~/Fawri_Infra"}}},
+		Projects:     []Project{{Name: "Orbit", Color: "#4C9AFF", Paths: []string{"~/Orbit_Infra"}}},
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	require.NoError(t, err)

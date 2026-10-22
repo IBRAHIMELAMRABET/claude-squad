@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const titled = `{"type":"custom-title","customTitle":"CMIBills CI/CD","sessionId":"a"}
+const titled = `{"type":"custom-title","customTitle":"Bank CI/CD","sessionId":"a"}
 {"type":"mode","mode":"default","sessionId":"a"}
-{"type":"user","cwd":"C:\\Users\\me\\Projects\\CMIBills\\Code\\Backend","isMeta":false,"message":{"role":"user","content":"<system-reminder>\nThe user named this session.\n</system-reminder>fix the pipeline"},"timestamp":"2026-08-20T20:25:05.720Z"}
+{"type":"user","cwd":"C:\\Users\\me\\Projects\\Bank\\Code\\Backend","isMeta":false,"message":{"role":"user","content":"<system-reminder>\nThe user named this session.\n</system-reminder>fix the pipeline"},"timestamp":"2026-08-20T20:25:05.720Z"}
 {"type":"last-prompt","lastPrompt":"now the deploy stage","leafUuid":"x","sessionId":"a"}
-{"type":"assistant","cwd":"C:\\Users\\me\\Projects\\CMIBills\\Code\\Backend","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}
+{"type":"assistant","cwd":"C:\\Users\\me\\Projects\\Bank\\Code\\Backend","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}
 `
 
 const untitled = `{"type":"system","cwd":"/home/me/repo","isMeta":true,"message":{"role":"user","content":"meta"}}
@@ -24,8 +24,8 @@ const untitled = `{"type":"system","cwd":"/home/me/repo","isMeta":true,"message"
 
 func TestParseHead(t *testing.T) {
 	h := ParseHead(strings.NewReader(titled))
-	require.Equal(t, `C:\Users\me\Projects\CMIBills\Code\Backend`, h.cwd)
-	require.Equal(t, "CMIBills CI/CD", h.title(), "the custom title wins")
+	require.Equal(t, `C:\Users\me\Projects\Bank\Code\Backend`, h.cwd)
+	require.Equal(t, "Bank CI/CD", h.title(), "the custom title wins")
 	require.Equal(t, "fix the pipeline", h.firstPrompt, "system reminders are stripped")
 	require.Equal(t, "now the deploy stage", h.lastPrompt)
 
@@ -56,7 +56,7 @@ func writeTranscript(t *testing.T, dir, id, body string, mod time.Time) {
 func TestScan(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now()
-	a := filepath.Join(root, "C--Users-me-Projects-CMIBills-Code-Backend")
+	a := filepath.Join(root, "C--Users-me-Projects-Bank-Code-Backend")
 	b := filepath.Join(root, "-home-me-repo")
 	writeTranscript(t, a, "11111111-1111-1111-1111-111111111111", titled, now.Add(-1*time.Hour))
 	writeTranscript(t, a, "22222222-2222-2222-2222-222222222222", titled, now.Add(-2*time.Hour))
@@ -77,8 +77,8 @@ func TestScan(t *testing.T) {
 	}
 	require.Equal(t, []string{"11111111", "44444444", "22222222"}, ids, "newest first, limit per project, one per id")
 	require.Equal(t, "-home-me-repo", entries[0].Dir, "the newer copy of the duplicated id wins")
-	require.Equal(t, "CMIBills CI/CD", entries[0].Title)
-	require.Equal(t, "CMIBills CI/CD", entries[0].CustomTitle)
+	require.Equal(t, "Bank CI/CD", entries[0].Title)
+	require.Equal(t, "Bank CI/CD", entries[0].CustomTitle)
 	require.Equal(t, "/home/me/repo", entries[1].CWD)
 	require.Empty(t, entries[1].CustomTitle, "never renamed: titled by its first prompt only")
 	require.WithinDuration(t, now.Add(-10*time.Minute), entries[0].Updated, time.Second)
@@ -146,11 +146,11 @@ func TestTitleWatcher(t *testing.T) {
 	require.Equal(t, map[string]string{path: "CMI BackOffice"}, w.Check([]string{path}))
 	require.Empty(t, w.Check([]string{path}), "an old rename is not reported twice")
 
-	half := rename("Fawri deploy")
+	half := rename("Orbit deploy")
 	appendLine(half[:20])
 	require.Empty(t, w.Check([]string{path}), "a line still being written waits")
 	appendLine(half[20:] + "\n")
-	require.Equal(t, map[string]string{path: "Fawri deploy"}, w.Check([]string{path}))
+	require.Equal(t, map[string]string{path: "Orbit deploy"}, w.Check([]string{path}))
 
 	require.Empty(t, w.Check(nil))
 	require.Empty(t, w.offsets, "a transcript no longer watched is forgotten")

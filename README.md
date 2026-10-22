@@ -82,7 +82,7 @@ scrollback and cursor.
 ```
 ┌ list ───────────────│ selected session ─────────────────────────┐
 │  All 316  Active 2  │ ╭─ Claude Code ─────────────────────────╮ │
-│ ▾ CMIBills/Code/…   │ │ ...                                    │ │
+│ ▾ Bank/Code/…   │ │ ...                                    │ │
 │ ● PERF TEST 2   now │ ╰────────────────────────────────────────╯ │
 │ ○ CMI BackOffice 1h │ ❯ _                                        │
 └─────────────────────┴────────────────────────────────────────────┘
@@ -206,7 +206,7 @@ All of these are optional; without them the fork behaves like upstream plus grou
 | `history_limit` | `0` | Cap on past sessions per project directory; `0` lists them all. |
 | `history_days` | `0` | Hide past sessions older than this many days; `0` lists them all. |
 | `group_by` | `"project"` | `"folder"` always groups sessions by folder, like a session browser, ignoring `projects` and `projects_root` for grouping (they still feed the repository picker). |
-| `group_label_segments` | `3` | How many trailing path segments name a folder group, e.g. `CMIBills/Code/Backend`. |
+| `group_label_segments` | `3` | How many trailing path segments name a folder group, e.g. `Bank/Code/Backend`. |
 | `history_ignore` | `[]` | Directory fragments whose sessions are hidden. |
 | `show_scratchpad_sessions` | `false` | Also list sessions recorded in Claude Code scratchpad folders, which agents and tests start from inside another session. |
 | `notifications` | `{"bell": true, "title": true}` | Ring the terminal bell when a session starts waiting, and keep the waiting count in the window title. |

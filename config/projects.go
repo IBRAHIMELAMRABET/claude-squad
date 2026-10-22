@@ -64,7 +64,7 @@ type Project struct {
 //
 // Explicit projects win, in config order. Otherwise, when projects_root is set and the
 // path lies beneath it, the first folder under the root names the project (so
-// <root>/Fawri/Code/Backend belongs to "Fawri"). Anything else returns "", and the UI
+// <root>/Orbit/Code/Backend belongs to "Orbit"). Anything else returns "", and the UI
 // groups the session by its folder (see PathGroup).
 func (c *Config) ProjectFor(path string) string {
 	path = cleanPath(path)

@@ -358,9 +358,9 @@ func TestWorktreeDirFor(t *testing.T) {
 
 	t.Run("worktree_next_to_repo wins and nests under the repo name", func(t *testing.T) {
 		cfg := &Config{WorktreeDir: "/tmp/wt", WorktreeNextToRepo: true}
-		got, err := cfg.WorktreeDirFor("/mnt/c/Projects/Fawri/Code/Backend")
+		got, err := cfg.WorktreeDirFor("/mnt/c/Projects/Orbit/Code/Backend")
 		require.NoError(t, err)
-		assert.Equal(t, "/mnt/c/Projects/Fawri/Code/.claude-squad-worktrees/Backend", got)
+		assert.Equal(t, "/mnt/c/Projects/Orbit/Code/.claude-squad-worktrees/Backend", got)
 	})
 
 	t.Run("worktree_next_to_repo without a repo falls back", func(t *testing.T) {
@@ -391,17 +391,17 @@ func TestHistoryDefaultsListEverything(t *testing.T) {
 
 func TestGroupFor(t *testing.T) {
 	cfg := &Config{ProjectsRoot: "/p"}
-	assert.Equal(t, "Fawri", cfg.GroupFor("/p/Fawri/Code/Api"))
+	assert.Equal(t, "Orbit", cfg.GroupFor("/p/Orbit/Code/Api"))
 	cfg.GroupBy = GroupByFolder
-	assert.Equal(t, "", cfg.GroupFor("/p/Fawri/Code/Api"), "folder mode ignores the project rules")
+	assert.Equal(t, "", cfg.GroupFor("/p/Orbit/Code/Api"), "folder mode ignores the project rules")
 	assert.Equal(t, DefaultGroupLabelSegments, cfg.GetGroupLabelSegments())
 	cfg.GroupLabelSegments = 1
 	assert.Equal(t, 1, cfg.GetGroupLabelSegments())
 }
 
 func TestIsScratchpad(t *testing.T) {
-	assert.True(t, IsScratchpad("/mnt/c/Users/me/AppData/Local/Temp/claude/C--Users-me-Projects-AIStudio/8d0439a2-612d-47d1-b107-5b1f3b4884b3/scratchpad/pii-e2e"))
+	assert.True(t, IsScratchpad("/mnt/c/Users/me/AppData/Local/Temp/claude/C--Users-me-Projects-Atelier/8d0439a2-612d-47d1-b107-5b1f3b4884b3/scratchpad/pii-e2e"))
 	assert.True(t, IsScratchpad(`C:\Users\me\AppData\Local\Temp\claude\C--x\25f45801-5252-4e2f-8530-009495325b63\scratchpad`))
 	assert.False(t, IsScratchpad("/mnt/c/Users/me/Projects/scratchpad"), "a folder merely named scratchpad")
-	assert.False(t, IsScratchpad("/mnt/c/Users/me/Projects/AIStudio"))
+	assert.False(t, IsScratchpad("/mnt/c/Users/me/Projects/Atelier"))
 }

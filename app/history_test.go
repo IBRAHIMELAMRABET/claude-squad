@@ -34,30 +34,30 @@ func TestReconcileHistory(t *testing.T) {
 	h.appConfig.HistoryIgnore = []string{"/AppData/Local/Temp/"}
 	now := time.Now()
 	entries := []history.Entry{
-		{ID: "aaaa", CWD: "/mnt/c/Projects/Fawri/Code/Backend", Title: "fix auth", LastPrompt: "redo the tests", Updated: now},
+		{ID: "aaaa", CWD: "/mnt/c/Projects/Orbit/Code/Backend", Title: "fix auth", LastPrompt: "redo the tests", Updated: now},
 		{ID: "bbbb", CWD: "/home/me/repo", Title: "docs", Updated: now.Add(-time.Hour)},
 		{ID: "cccc", CWD: "/home/me/AppData/Local/Temp/claude/x", Title: "scratch", Updated: now},
 	}
 
 	require.True(t, h.reconcileHistory(entries))
 	require.Equal(t, 2, h.list.NumInstances(), "the scratch folder is ignored by history_ignore")
-	var fawri *session.Instance
+	var orbit *session.Instance
 	for _, inst := range h.list.GetInstances() {
 		require.True(t, inst.Archived)
 		require.Equal(t, session.Stopped, inst.Status)
 		if inst.ResumeID == "aaaa" {
-			fawri = inst
+			orbit = inst
 		}
 	}
-	require.NotNil(t, fawri)
-	require.Equal(t, "Fawri", fawri.Project, "projects resolve from the recorded cwd")
-	require.Equal(t, "redo the tests", fawri.Summary)
+	require.NotNil(t, orbit)
+	require.Equal(t, "Orbit", orbit.Project, "projects resolve from the recorded cwd")
+	require.Equal(t, "redo the tests", orbit.Summary)
 
 	require.False(t, h.reconcileHistory(entries), "same entries: no change")
 
 	entries[0].Title = "fix auth (renamed)"
 	require.False(t, h.reconcileHistory(entries), "a refreshed title is not a structural change")
-	require.Equal(t, "fix auth (renamed)", fawri.Title)
+	require.Equal(t, "fix auth (renamed)", orbit.Title)
 
 	// A running instance that resumed "bbbb" hides its archived row.
 	running, err := session.NewInstance(session.InstanceOptions{Title: "docs", Path: t.TempDir(), Program: "claude", ResumeID: "bbbb"})
@@ -122,11 +122,11 @@ func TestResumeArchivedReplacesTheRow(t *testing.T) {
 	h.errBox = ui.NewErrBox()
 	h.storage = newTestStorage(t)
 
-	other, err := session.NewInstance(session.InstanceOptions{Title: "CMIBills CI-CD", Path: t.TempDir(), Program: "claude"})
+	other, err := session.NewInstance(session.InstanceOptions{Title: "Bank CI-CD", Path: t.TempDir(), Program: "claude"})
 	require.NoError(t, err)
 	h.list.AddInstance(other)()
-	archived := session.NewArchivedInstance("abcd", "CMIBills CI/CD: pipeline.v2", t.TempDir(), "last", time.Now())
-	archived.Project = "CMIBills"
+	archived := session.NewArchivedInstance("abcd", "Bank CI/CD: pipeline.v2", t.TempDir(), "last", time.Now())
+	archived.Project = "Bank"
 	h.list.AddInstance(archived)()
 
 	cmd := h.resumeArchived(archived)
@@ -141,9 +141,9 @@ func TestResumeArchivedReplacesTheRow(t *testing.T) {
 	}
 	require.NotNil(t, fresh)
 	require.True(t, fresh.InPlace, "resumed sessions run in place")
-	require.Equal(t, "CMIBills CI/CD- pipeline-v2", fresh.Title, "characters tmux rejects are replaced")
-	require.Equal(t, "CMIBills CI/CD: pipeline.v2", fresh.DisplayTitle(), "the row keeps its name")
-	require.Equal(t, "CMIBills", fresh.Project)
+	require.Equal(t, "Bank CI/CD- pipeline-v2", fresh.Title, "characters tmux rejects are replaced")
+	require.Equal(t, "Bank CI/CD: pipeline.v2", fresh.DisplayTitle(), "the row keeps its name")
+	require.Equal(t, "Bank", fresh.Project)
 	require.Equal(t, session.Loading, fresh.Status)
 	require.Same(t, fresh, h.list.GetSelectedInstance())
 }
@@ -163,12 +163,12 @@ func TestSessionTitleAndUniqueTitle(t *testing.T) {
 }
 
 func TestArchivedCard(t *testing.T) {
-	inst := session.NewArchivedInstance("id-1", "fix auth", "/mnt/c/Projects/Fawri/Code/Backend",
+	inst := session.NewArchivedInstance("id-1", "fix auth", "/mnt/c/Projects/Orbit/Code/Backend",
 		strings.Repeat("word ", 30), time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local))
-	inst.Project = "Fawri"
+	inst.Project = "Orbit"
 	card := archivedCard(inst)
 	require.Contains(t, card, "fix auth")
-	require.Contains(t, card, "Project    Fawri")
+	require.Contains(t, card, "Project    Orbit")
 	require.Contains(t, card, "2026-10-15 09:30")
 	require.Contains(t, card, "Press Enter to resume this session here (Backend)")
 	for _, line := range strings.Split(card, "\n") {
@@ -184,7 +184,7 @@ func TestHistoryIgnore(t *testing.T) {
 	require.True(t, cfg.HistoryIgnored("/mnt/c/Users/me/AppData/Local/Temp/claude/x"))
 	require.True(t, cfg.HistoryIgnored("/mnt/c/Users/me/AppData/Local/Temp"), "the folder itself, without a trailing slash")
 	require.True(t, cfg.HistoryIgnored("/srv/archive/old"))
-	require.False(t, cfg.HistoryIgnored("/mnt/c/Projects/Fawri"))
+	require.False(t, cfg.HistoryIgnored("/mnt/c/Projects/Orbit"))
 }
 
 // A running session without hooks (the Windows claude.exe) claims the transcript written in

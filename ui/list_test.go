@@ -4,6 +4,7 @@ import (
 	"claude-squad/config"
 	"claude-squad/session"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -125,18 +126,21 @@ func TestSessionsWithoutProjectGroupByFolder(t *testing.T) {
 	key := config.FolderGroupPath(l.items[0].ProjectPath())
 	require.NotEmpty(t, key)
 	require.Equal(t, []string{"#" + key, "a", "b"}, rowLabels(l), "one folder header for both")
-	require.Equal(t, "brahim/claude-squad/ui", l.rows()[0].name, "the header shows the last three path segments")
+	// Tests run in the package directory, wherever the repository is checked out.
+	parts := strings.Split(strings.Trim(filepath.ToSlash(key), "/"), "/")
+	require.GreaterOrEqual(t, len(parts), 3)
+	require.Equal(t, strings.Join(parts[len(parts)-3:], "/"), l.rows()[0].name, "the header shows the last three path segments")
 	l.SetLabelSegments(1)
 	require.Equal(t, "ui", l.rows()[0].name, "or fewer when configured")
 }
 
 func TestFolderGroupLabelsAreNamesAndDisambiguated(t *testing.T) {
-	labels := groupLabels([]string{"/w/one/Backend", "/w/two/Backend", "/w/app", "Fawri", "/w/Fawri"}, 1)
+	labels := groupLabels([]string{"/w/one/Backend", "/w/two/Backend", "/w/app", "Orbit", "/w/Orbit"}, 1)
 	require.Equal(t, "one/Backend", labels["/w/one/Backend"], "same folder name: the parent is added")
 	require.Equal(t, "two/Backend", labels["/w/two/Backend"])
 	require.Equal(t, "app", labels["/w/app"])
-	require.Equal(t, "Fawri", labels["Fawri"], "project names never change")
-	require.Equal(t, "w/Fawri", labels["/w/Fawri"], "a folder clashing with a project gets its parent")
+	require.Equal(t, "Orbit", labels["Orbit"], "project names never change")
+	require.Equal(t, "w/Orbit", labels["/w/Orbit"], "a folder clashing with a project gets its parent")
 }
 
 // Folding the selected session's group puts the cursor on the header, so the same key
@@ -259,25 +263,25 @@ func TestAgo(t *testing.T) {
 
 func TestRenderShowsHeaderAndRepo(t *testing.T) {
 	l := newTestList("a1")
-	l.items[0].Project = "Fawri"
+	l.items[0].Project = "Orbit"
 	l.SetSize(60, 30)
 
 	out := l.String()
-	require.Contains(t, out, "▾ Fawri")
+	require.Contains(t, out, "▾ Orbit")
 	require.Contains(t, out, "a1")
 }
 
 func TestWaitingSortsFirstAndCountsInHeader(t *testing.T) {
 	l := newTestList("busy", "needs-you", "idle")
 	for _, i := range l.items {
-		i.Project = "Fawri"
+		i.Project = "Orbit"
 	}
 	l.items[0].Status = session.Running
 	l.items[1].Status = session.Waiting
 	l.items[2].Status = session.Ready
 	l.SetSize(60, 30)
 
-	require.Equal(t, []string{"#Fawri", "needs-you", "busy", "idle"}, rowLabels(l))
+	require.Equal(t, []string{"#Orbit", "needs-you", "busy", "idle"}, rowLabels(l))
 	require.Equal(t, 1, l.rows()[0].waiting)
 	require.Contains(t, l.String(), "1 waiting")
 }
@@ -298,14 +302,14 @@ func TestActiveOnlyHidesPausedAndEmptyGroups(t *testing.T) {
 
 func TestTextFilterMatchesTitleProjectRepoAndBranch(t *testing.T) {
 	l := newTestList("fix-auth", "docs", "api")
-	l.items[0].Project = "Fawri"
-	l.items[1].Project = "CMIBills"
-	l.items[2].Project = "Fawri"
+	l.items[0].Project = "Orbit"
+	l.items[1].Project = "Bank"
+	l.items[2].Project = "Orbit"
 	l.items[2].Branch = "user/billing-api"
 
 	cases := map[string][]string{
 		"AUTH":    {"fix-auth"},
-		"fawri":   {"fix-auth", "api"},
+		"orbit":   {"fix-auth", "api"},
 		"billing": {"api"},
 		"zzz":     {},
 		"":        {"docs", "fix-auth", "api"}, // groups are alphabetical
@@ -503,7 +507,7 @@ func TestCompactRows(t *testing.T) {
 
 func TestHeaderFitsTheWidth(t *testing.T) {
 	l := newTestList("x")
-	l.items[0].Project = "IbrahimLAMRABET/fleet-control/enclave-tauri"
+	l.items[0].Project = "alex/workbench-tools/desktop-companion"
 	l.SetCompact(true)
 	l.SetSize(32, 10)
 	for _, line := range strings.Split(l.String(), "\n") {
@@ -515,24 +519,24 @@ func TestHeaderFitsTheWidth(t *testing.T) {
 
 func TestFilterShowsMatchesInFoldedGroups(t *testing.T) {
 	l := newTestList("weekly sec", "other")
-	l.items[0].Project, l.items[1].Project = "Fawri", "Fawri"
-	l.SetFolded([]string{"Fawri"})
+	l.items[0].Project, l.items[1].Project = "Orbit", "Orbit"
+	l.SetFolded([]string{"Orbit"})
 
 	l.SetFilter("weekly")
-	require.Equal(t, []string{"#Fawri", "weekly sec"}, rowLabels(l), "the match is shown although the group is folded")
+	require.Equal(t, []string{"#Orbit", "weekly sec"}, rowLabels(l), "the match is shown although the group is folded")
 	l.SetFilter("")
-	require.Equal(t, []string{"#Fawri"}, rowLabels(l), "the fold is back once the filter is cleared")
-	require.Equal(t, []string{"Fawri"}, l.FoldedProjects())
+	require.Equal(t, []string{"#Orbit"}, rowLabels(l), "the fold is back once the filter is cleared")
+	require.Equal(t, []string{"Orbit"}, l.FoldedProjects())
 }
 
 func TestThreeSegmentLabelsLikeASessionBrowser(t *testing.T) {
 	labels := groupLabels([]string{
-		"/mnt/c/Users/me/Documents/B3G/Projects/CMIBills/Code/Backend",
-		"/mnt/c/Users/me/Documents/B3G/Projects/AIStudio",
+		"/mnt/c/Users/me/Documents/Acme/Projects/Bank/Code/Backend",
+		"/mnt/c/Users/me/Documents/Acme/Projects/Atelier",
 		"/mnt/c/Users/me",
 	}, 3)
-	require.Equal(t, "CMIBills/Code/Backend", labels["/mnt/c/Users/me/Documents/B3G/Projects/CMIBills/Code/Backend"])
-	require.Equal(t, "B3G/Projects/AIStudio", labels["/mnt/c/Users/me/Documents/B3G/Projects/AIStudio"])
+	require.Equal(t, "Bank/Code/Backend", labels["/mnt/c/Users/me/Documents/Acme/Projects/Bank/Code/Backend"])
+	require.Equal(t, "Acme/Projects/Atelier", labels["/mnt/c/Users/me/Documents/Acme/Projects/Atelier"])
 	require.Equal(t, "c/Users/me", labels["/mnt/c/Users/me"])
 }
 

@@ -65,9 +65,9 @@ func TestCanStartWithoutRepo(t *testing.T) {
 
 func TestReposUnderRoot(t *testing.T) {
 	root := t.TempDir()
-	deep := initTestRepo(t, filepath.Join(root, "Fawri", "Code"), "Backend")
-	top := initTestRepo(t, root, "Umnia")
-	initTestRepo(t, filepath.Join(root, "Fawri", "Code", "Backend"), "nested-ignored") // inside a repo
+	deep := initTestRepo(t, filepath.Join(root, "Orbit", "Code"), "Backend")
+	top := initTestRepo(t, root, "Vale")
+	initTestRepo(t, filepath.Join(root, "Orbit", "Code", "Backend"), "nested-ignored") // inside a repo
 	initTestRepo(t, filepath.Join(root, ".hidden"), "skipped")
 	initTestRepo(t, filepath.Join(root, "a", "b", "c"), "too-deep")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "Platform", "node_modules", "x"), 0755))
