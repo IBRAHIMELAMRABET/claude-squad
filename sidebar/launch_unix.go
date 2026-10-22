@@ -31,6 +31,7 @@ func Launch(sidebarCommand string, width int) error {
 	if err := ensureLayout(sidebarCommand, width); err != nil {
 		return err
 	}
+	restartStaleList(sidebarCommand)
 	if TrueColorTerminal(os.Getenv) {
 		enableTrueColor()
 	}
@@ -124,6 +125,21 @@ func ensureLayout(sidebarCommand string, width int) error {
 		}
 	}
 	return nil
+}
+
+// restartStaleList restarts the list when it runs a cs binary that was replaced since it
+// started (an upgrade): attaching again would otherwise keep showing the old version. Agent
+// sessions are not touched. Linux only: elsewhere /proc is missing and nothing happens.
+func restartStaleList(sidebarCommand string) {
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", "="+ListSession+":", "#{pane_pid}").Output()
+	if err != nil {
+		return
+	}
+	exe, err := os.Readlink(filepath.Join("/proc", strings.TrimSpace(string(out)), "exe"))
+	if err != nil || !ReplacedBinary(exe) {
+		return
+	}
+	_ = run("tmux", "respawn-pane", "-k", "-t", "="+ListSession+":", "-e", EnvSidebar+"=1", sidebarCommand)
 }
 
 // runAll runs tmux commands in order, killing the session being built when one fails.

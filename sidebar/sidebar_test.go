@@ -129,6 +129,12 @@ func TestTrueColorTerminal(t *testing.T) {
 	require.False(t, TrueColorTerminal(env(map[string]string{"TERM": "xterm-256color"})))
 }
 
+// After an upgrade the running list's program file is gone; cs then restarts the list.
+func TestReplacedBinary(t *testing.T) {
+	require.True(t, ReplacedBinary("/home/me/.local/bin/cs (deleted)"))
+	require.False(t, ReplacedBinary("/home/me/.local/bin/cs"))
+}
+
 func TestFitSessions(t *testing.T) {
 	r := &recorder{output: "228 62"}
 	c := newTestController(t, r)

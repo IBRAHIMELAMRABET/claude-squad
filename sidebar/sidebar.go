@@ -225,6 +225,12 @@ func quoteLast(args []string) []string {
 	return out
 }
 
+// ReplacedBinary reports whether a /proc/<pid>/exe link names a program file that was
+// deleted or replaced since the process started, as an upgrade does.
+func ReplacedBinary(exe string) bool {
+	return strings.HasSuffix(exe, " (deleted)")
+}
+
 // TrueColorTerminal reports whether the terminal described by the environment renders
 // 24-bit colour: COLORTERM says so, or it is Windows Terminal, VS Code, iTerm2 or WezTerm.
 func TrueColorTerminal(getenv func(string) string) bool {
