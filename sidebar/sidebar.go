@@ -99,7 +99,7 @@ func (c *Controller) ShowSession(sessionName string) error {
 
 // ShowPlaceholder shows the "no session" hint.
 func (c *Controller) ShowPlaceholder() error {
-	return c.show("placeholder.sh", PlaceholderScript())
+	return c.show("placeholder.sh", PlaceholderScript(c.width+2))
 }
 
 // ShowDiff pages the diff of workdir (against base when given) and then returns to the session.
@@ -121,9 +121,10 @@ func (c *Controller) ShowHelp(text, sessionName string) error {
 	return c.show("help.sh", HelpScript(path, sessionName))
 }
 
-// ShowText shows a static text card in the viewer (for a session that is not running).
+// ShowText shows a static text card in the viewer (for a session that is not running),
+// starting right of the list so the open list does not cover it.
 func (c *Controller) ShowText(text string) error {
-	path, err := c.writeScript("card.txt", text)
+	path, err := c.writeScript("card.txt", Indent(text, c.width+2))
 	if err != nil {
 		return err
 	}
@@ -253,17 +254,29 @@ func AttachScript(sessionName string) string {
 	return "TMUX= exec tmux attach-session -t " + shellQuote("="+sessionName) + "\n"
 }
 
-// PlaceholderScript shows a hint and waits.
-func PlaceholderScript() string {
-	return "clear\n" +
-		"printf '\\n\\n   No session selected.\\n\\n   Alt+S opens the list: pick a session, or press n to create one.\\n'\n" +
-		"while :; do sleep 3600; done\n"
+// Indent moves every non-empty line of text right by margin columns.
+func Indent(text string, margin int) string {
+	pad := strings.Repeat(" ", margin)
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if l != "" {
+			lines[i] = pad + l
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// PlaceholderScript shows a hint, margin columns from the left edge (right of the open
+// list), and waits.
+func PlaceholderScript(margin int) string {
+	text := Indent("No session selected.\n\nAlt+S opens the list: pick a session, or press n to create one.", margin)
+	return "clear\nprintf '\\n\\n%s\\n' " + shellQuote(text) + "\nwhile :; do sleep 3600; done\n"
 }
 
 // returnScript hands the pane back to the session, or to the placeholder.
 func returnScript(sessionName string) string {
 	if sessionName == "" {
-		return PlaceholderScript()
+		return PlaceholderScript(DefaultWidth + 2)
 	}
 	return AttachScript(sessionName)
 }

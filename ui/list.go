@@ -192,9 +192,11 @@ const (
 	ViewActive
 	// ViewWaiting shows the sessions waiting for the user.
 	ViewWaiting
+	// ViewHidden shows the past sessions the user hid, to bring them back.
+	ViewHidden
 )
 
-var viewNames = []string{"All", "Active", "Waiting"}
+var viewNames = []string{"All", "Active", "Waiting", "Hidden"}
 
 func (v ViewMode) String() string {
 	if v < 0 || int(v) >= len(viewNames) {
@@ -224,9 +226,19 @@ func (l *List) Mode() ViewMode {
 	return l.mode
 }
 
-// CycleMode switches to the next view: All, Active, Waiting, then All again.
+// CycleMode switches to the next view: All, Active, Waiting, Hidden when something is
+// hidden, then All again.
 func (l *List) CycleMode() {
-	l.SetMode((l.mode + 1) % ViewMode(len(viewNames)))
+	next := (l.mode + 1) % ViewMode(len(viewNames))
+	if next == ViewHidden && l.viewCount(ViewHidden) == 0 {
+		next = ViewAll
+	}
+	l.SetMode(next)
+}
+
+// Refresh keeps the selection on a visible row after sessions changed visibility.
+func (l *List) Refresh() {
+	l.ensureVisibleSelection()
 }
 
 // SetActiveOnly switches between the Active and All views.
@@ -259,6 +271,9 @@ func isLive(i *session.Instance) bool {
 
 // inView reports whether a session belongs to a view.
 func inView(i *session.Instance, mode ViewMode) bool {
+	if mode == ViewHidden || i.Hidden {
+		return mode == ViewHidden && i.Hidden
+	}
 	switch mode {
 	case ViewActive:
 		return isLive(i)
@@ -858,15 +873,17 @@ type modeSpan struct {
 // renderModeBar draws " All 350  Active 2  Waiting 0" with the current view highlighted,
 // recording where each view was drawn. Labels shrink when the pane is too narrow.
 func (l *List) renderModeBar() string {
-	labels := viewNames
+	modes := []ViewMode{ViewAll, ViewActive, ViewWaiting}
+	if l.mode == ViewHidden || l.viewCount(ViewHidden) > 0 {
+		modes = append(modes, ViewHidden)
+	}
 	render := func(names []string) (string, []modeSpan) {
 		var b strings.Builder
 		var spans []modeSpan
 		col := 1
 		b.WriteString(" ")
-		for i, name := range names {
-			mode := ViewMode(i)
-			text := fmt.Sprintf("%s %d", name, l.viewCount(mode))
+		for i, mode := range modes {
+			text := fmt.Sprintf("%s %d", names[mode], l.viewCount(mode))
 			if i > 0 {
 				b.WriteString("  ")
 				col += 2
@@ -885,9 +902,9 @@ func (l *List) renderModeBar() string {
 		}
 		return b.String(), spans
 	}
-	bar, spans := render(labels)
+	bar, spans := render(viewNames)
 	if l.width > 0 && spans[len(spans)-1].end > l.width {
-		bar, spans = render([]string{"All", "Act", "Wait"})
+		bar, spans = render([]string{"All", "Act", "Wait", "Hid"})
 	}
 	l.modeSpans = spans
 	return bar

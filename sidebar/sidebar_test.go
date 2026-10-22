@@ -13,8 +13,10 @@ import (
 
 func TestScripts(t *testing.T) {
 	require.Equal(t, "TMUX= exec tmux attach-session -t '=claudesquad_fix'\n", AttachScript("claudesquad_fix"))
-	require.Contains(t, PlaceholderScript(), "No session selected")
-	require.Contains(t, PlaceholderScript(), "Alt+S opens the list")
+	require.Contains(t, PlaceholderScript(34), "No session selected")
+	require.Contains(t, PlaceholderScript(34), "Alt+S opens the list")
+	require.Contains(t, PlaceholderScript(34), strings.Repeat(" ", 34)+"No session selected", "right of the open list")
+	require.Equal(t, "    a\n\n    b", Indent("a\n\nb", 4), "empty lines stay empty")
 
 	diff := DiffScript("/wt/fix", "abc123", "claudesquad_fix")
 	require.Contains(t, diff, "git -C '/wt/fix' --no-pager diff --color=always 'abc123' | less -R")
@@ -77,7 +79,7 @@ func TestControllerDrivesTheViewerAndTheList(t *testing.T) {
 	require.NoError(t, c.ShowText("hello\nworld"))
 	card, err := os.ReadFile(filepath.Join(c.dir, "card.txt"))
 	require.NoError(t, err)
-	require.Equal(t, "hello\nworld", string(card))
+	require.Equal(t, Indent("hello\nworld", 38), string(card), "right of the open list")
 }
 
 func TestQuitOrder(t *testing.T) {

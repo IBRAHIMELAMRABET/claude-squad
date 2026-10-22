@@ -110,8 +110,20 @@ row turns into a running session. Sessions recorded on Windows resume from WSL t
 finds the transcript by id and the reply lands in the same file.
 
 Every session is listed by default (`history_limit` and `history_days` can cap them), titled
-by its latest `/rename` or its first prompt; sessions from temporary folders are hidden
-(`history_ignore`). Transcripts are re-read only when they change.
+by its latest `/rename` or its first prompt. Runs without a terminal (`claude -p`, the SDK:
+tests and automation) are left out unless `show_headless_sessions` is set, and folders can be
+left out with `history_ignore`. `x` hides one past session; once something is hidden the
+view bar shows `Hidden`, where `x` brings a session back. Transcripts are re-read only when
+they change.
+
+#### New sessions
+
+`n` starts in the folder of the row under the cursor (a session's, or a folder group's);
+`←/→` picks another known folder and `tab` switches between in place and worktree while you
+type the name. Any existing folder works; outside a git repository the session runs in
+place. A new Claude session gets its own id and your name (`--session-id`, `-n`), so it opens
+on a chat and can be resumed by that id later. A session whose program exits, or whose tmux
+server went away, stays in the list paused; `↵` continues its conversation.
 
 <br />
 
@@ -208,6 +220,7 @@ All of these are optional; without them the fork behaves like upstream plus grou
 | `group_by` | `"project"` | `"folder"` always groups sessions by folder, like a session browser, ignoring `projects` and `projects_root` for grouping (they still feed the repository picker). |
 | `group_label_segments` | `3` | How many trailing path segments name a folder group, e.g. `Bank/Code/Backend`. |
 | `history_ignore` | `[]` | Directory fragments whose sessions are hidden. |
+| `show_headless_sessions` | `false` | Also list runs without a terminal (`claude -p`, the SDK), which are tests and automation. |
 | `show_scratchpad_sessions` | `false` | Also list sessions recorded in Claude Code scratchpad folders, which agents and tests start from inside another session. |
 | `notifications` | `{"bell": true, "title": true}` | Ring the terminal bell when a session starts waiting, and keep the waiting count in the window title. |
 | `disable_adopt` | `false` | Do not list agent sessions running in tmux sessions `cs` did not create. |

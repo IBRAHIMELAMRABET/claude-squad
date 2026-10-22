@@ -250,6 +250,8 @@ func TestStartInPlaceOutsideARepository(t *testing.T) {
 
 	require.NoError(t, inst.Start(true))
 	require.Equal(t, Running, inst.Status)
+	require.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, inst.ClaudeSessionID,
+		"a new Claude session gets its id up front")
 	require.Equal(t, dir, inst.WorkDir())
 	require.Empty(t, inst.Branch, "no repository, no branch")
 
@@ -298,4 +300,28 @@ func TestLaunchEnvKeepsTranscripts(t *testing.T) {
 	require.Equal(t, "A:B", appendWSLENV("A:B", "B"), "already listed")
 	require.Equal(t, "B", appendWSLENV("", "B"))
 	require.Equal(t, "B/u", appendWSLENV("B/u", "B"), "listed with flags")
+}
+
+// A new Claude session starts with its own id and name, so Claude opens on a chat rather
+// than its agent view; once Claude recorded it, relaunching continues it.
+func TestNewClaudeSessionArgs(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	projects := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", projects)
+	inst, err := NewInstance(InstanceOptions{Title: "my work", Path: t.TempDir(), Program: "/mnt/c/Users/me/.local/bin/claude.exe", InPlace: true})
+	require.NoError(t, err)
+	inst.ClaudeSessionID = "11111111-2222-4333-8444-555555555555"
+	require.Equal(t, "/mnt/c/Users/me/.local/bin/claude.exe --session-id 11111111-2222-4333-8444-555555555555 -n 'my work'", inst.launchProgram())
+
+	require.NoError(t, os.MkdirAll(filepath.Join(projects, "projects", "x"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(projects, "projects", "x", inst.ClaudeSessionID+".jsonl"), []byte("{}\n"), 0644))
+	require.Equal(t, "/mnt/c/Users/me/.local/bin/claude.exe --resume 11111111-2222-4333-8444-555555555555", inst.launchProgram())
+
+	data := inst.ToInstanceData()
+	require.Equal(t, inst.ClaudeSessionID, data.ClaudeID, "the id is saved")
+
+	other, err := NewInstance(InstanceOptions{Title: "x", Path: t.TempDir(), Program: "aider", InPlace: true})
+	require.NoError(t, err)
+	other.ClaudeSessionID = "abc"
+	require.Equal(t, "aider", other.launchProgram(), "only Claude gets these")
 }

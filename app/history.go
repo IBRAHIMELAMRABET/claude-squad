@@ -163,11 +163,19 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 	for _, e := range entries {
 		cwd := config.NormalizePath(e.CWD)
 		if live[e.ID] || m.appConfig.HistoryIgnored(cwd) || !dirExists(cwd) ||
-			(!m.appConfig.ShowScratchpadSessions && config.IsScratchpad(cwd)) {
+			(!m.appConfig.ShowScratchpadSessions && config.IsScratchpad(cwd)) ||
+			(!m.appConfig.ShowHeadlessSessions && e.Headless) {
 			continue // a session cannot be resumed where its directory is gone
 		}
 		e.CWD = cwd
 		wanted[e.ID] = e
+	}
+
+	hidden := make(map[string]bool)
+	if m.appState != nil {
+		for _, id := range m.appState.GetUIPrefs().HiddenSessions {
+			hidden[id] = true
+		}
 	}
 
 	changed := false
@@ -186,6 +194,7 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 	for id, e := range wanted {
 		if inst, ok := known[id]; ok {
 			inst.Title, inst.Summary, inst.LastActivity = e.Title, e.LastPrompt, e.Updated
+			inst.Hidden = hidden[id]
 			continue
 		}
 		inst := session.NewArchivedInstance(e.ID, e.Title, e.CWD, e.LastPrompt, e.Updated)
@@ -197,10 +206,34 @@ func (m *home) reconcileHistory(entries []history.Entry) bool {
 		}
 		inst.Project = m.appConfig.GroupFor(groupPath)
 		inst.GroupPath = groupPath
+		inst.Hidden = hidden[e.ID]
 		m.list.AddInstance(inst)()
 		changed = true
 	}
 	return changed
+}
+
+// errHidePast is shown when x targets something other than a past session.
+var errHidePast = fmt.Errorf("x hides past (○) sessions; D deletes one")
+
+// setHidden hides a past session from the list, or brings it back, and remembers it.
+func (m *home) setHidden(inst *session.Instance, hidden bool) {
+	inst.Hidden = hidden
+	prefs := m.appState.GetUIPrefs()
+	var ids []string
+	for _, id := range prefs.HiddenSessions {
+		if id != inst.ResumeID {
+			ids = append(ids, id)
+		}
+	}
+	if hidden {
+		ids = append(ids, inst.ResumeID)
+	}
+	prefs.HiddenSessions = ids
+	if err := m.appState.SetUIPrefs(prefs); err != nil {
+		log.WarningLog.Printf("failed to save hidden sessions: %v", err)
+	}
+	m.list.Refresh()
 }
 
 // dirExists reports whether path is an existing directory. Overridable in tests.
@@ -343,6 +376,23 @@ func archivedCard(inst *session.Instance) string {
 		fmt.Fprintf(&b, "\n  Last prompt\n  %s\n", wrap(inst.Summary, 70, "  "))
 	}
 	fmt.Fprintf(&b, "\n  Press Enter to resume this session here (%s).\n", filepath.Base(inst.Path))
+	return b.String()
+}
+
+// newSessionCard is shown in the session pane while a new session is being named.
+func newSessionCard(inst *session.Instance) string {
+	mode := "worktree: its own branch and folder"
+	if inst.InPlace {
+		mode = "in place: runs in the folder itself"
+	}
+	var b strings.Builder
+	b.WriteString("\n  New session\n\n")
+	fmt.Fprintf(&b, "  Folder  %s\n", inst.Path)
+	fmt.Fprintf(&b, "  Mode    %s\n\n", mode)
+	b.WriteString("  Type its name in the list, then press Enter.\n")
+	b.WriteString("  ←/→ another folder · tab in place or worktree · esc cancel\n\n")
+	b.WriteString("  In a folder Claude has not opened before, it first asks whether to\n")
+	b.WriteString("  trust it, with No preselected: pick \"Yes, I trust this folder\".\n")
 	return b.String()
 }
 

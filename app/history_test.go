@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 )
 
@@ -211,4 +212,58 @@ func TestRunningSessionClaimsItsTranscript(t *testing.T) {
 		}
 	}
 	require.ElementsMatch(t, []string{"older", "elsewhere"}, past, "its own transcript is not listed twice")
+}
+
+// Headless runs (claude -p, the SDK) are tests and automation: not listed unless asked.
+// x hides a past session and brings it back from the Hidden view; it remembers.
+func TestHeadlessAndHiddenSessions(t *testing.T) {
+	dirExists = func(string) bool { return true }
+	defer func() { dirExists = func(p string) bool { info, err := os.Stat(p); return err == nil && info.IsDir() } }()
+	t.Setenv("HOME", t.TempDir())
+	h := historyHome(t)
+	h.appState = config.DefaultState()
+	h.menu = ui.NewMenu()
+	h.tabbedWindow = ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane(), ui.NewTerminalPane())
+	h.errBox = ui.NewErrBox()
+	now := time.Now()
+	entries := []history.Entry{
+		{ID: "test", CWD: "/home/me/repo", Title: "Reply OK", Updated: now, Headless: true},
+		{ID: "chat", CWD: "/home/me/repo", Title: "real work", Updated: now},
+		{ID: "old", CWD: "/home/me/repo", Title: "old work", Updated: now.Add(-time.Hour)},
+	}
+	h.reconcileHistory(entries)
+	require.Equal(t, 2, h.list.NumInstances(), "the headless run is not listed")
+
+	var old *session.Instance
+	for _, inst := range h.list.GetInstances() {
+		if inst.ResumeID == "old" {
+			old = inst
+		}
+	}
+	h.list.SelectInstance(old)
+	press := func(k string) { h.keySent = true; h.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}) }
+	press("x")
+	require.True(t, old.Hidden)
+	require.Equal(t, []string{"old"}, h.appState.GetUIPrefs().HiddenSessions, "remembered")
+
+	h.reconcileHistory(entries)
+	require.True(t, old.Hidden, "still hidden after a rescan")
+
+	h.list.SetMode(ui.ViewHidden)
+	h.list.SelectInstance(old)
+	press("x")
+	require.False(t, old.Hidden, "x in the Hidden view brings it back")
+	require.Empty(t, h.appState.GetUIPrefs().HiddenSessions)
+
+	h.appConfig.ShowHeadlessSessions = true
+	h.reconcileHistory(entries)
+	require.Equal(t, 3, h.list.NumInstances(), "show_headless_sessions lists them")
+}
+
+func TestNewSessionCard(t *testing.T) {
+	inst, _ := session.NewInstance(session.InstanceOptions{Title: "", Path: "/mnt/c/Projects/Atelier", Program: "claude", InPlace: true})
+	card := newSessionCard(inst)
+	require.Contains(t, card, "Folder  /mnt/c/Projects/Atelier")
+	require.Contains(t, card, "in place")
+	require.Contains(t, card, "Yes, I trust this folder")
 }

@@ -1067,6 +1067,13 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.list.CycleMode()
 		m.saveUIPrefs()
 		return m, m.instanceChanged()
+	case keys.KeyHide:
+		sel := m.list.GetSelectedInstance()
+		if sel == nil || !sel.Archived {
+			return m, m.handleError(errHidePast)
+		}
+		m.setHidden(sel, !sel.Hidden)
+		return m, m.instanceChanged()
 	case keys.KeySearch:
 		m.state = stateFilter
 		m.menu.SetState(ui.StateFilter)
@@ -1381,8 +1388,12 @@ func (m *home) followTarget() string {
 // followKey identifies what the pane should show: a tmux session name, "card:<id>" for a
 // past session, or "" for the placeholder.
 func (m *home) followKey() string {
-	if sel := m.list.GetSelectedInstance(); sel != nil && sel.Archived {
+	sel := m.list.GetSelectedInstance()
+	if sel != nil && sel.Archived {
 		return "card:" + sel.ResumeID
+	}
+	if sel != nil && m.state == stateNew && !sel.Started() {
+		return fmt.Sprintf("new:%s:%t", sel.Path, sel.InPlace)
 	}
 	return m.followTarget()
 }
@@ -1417,6 +1428,8 @@ func (m *home) showSelected() tea.Cmd {
 	switch sel := m.list.GetSelectedInstance(); {
 	case sel != nil && sel.Archived:
 		err = m.sidebar.ShowText(archivedCard(sel))
+	case sel != nil && strings.HasPrefix(key, "new:"):
+		err = m.sidebar.ShowText(newSessionCard(sel))
 	case key == "":
 		err = m.sidebar.ShowPlaceholder()
 	default:

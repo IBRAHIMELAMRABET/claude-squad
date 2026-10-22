@@ -590,3 +590,26 @@ func TestModeBarIsDrawnAndClickable(t *testing.T) {
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
+
+// Hidden past sessions leave every view but Hidden, which the bar shows only when used.
+func TestHiddenView(t *testing.T) {
+	l := newTestList("kept", "gone")
+	l.items[1].Hidden = true
+	l.SetCompact(true)
+	l.SetSize(40, 20)
+	require.Equal(t, []string{"kept"}, titlesOf(l.visible()))
+	require.Contains(t, l.String(), "Hid")
+
+	l.SetMode(ViewActive)
+	l.CycleMode()
+	require.Equal(t, ViewWaiting, l.Mode())
+	l.CycleMode()
+	require.Equal(t, ViewHidden, l.Mode())
+	require.Equal(t, []string{"gone"}, titlesOf(l.visible()))
+
+	l.items[1].Hidden = false
+	l.SetMode(ViewWaiting)
+	l.CycleMode()
+	require.Equal(t, ViewAll, l.Mode(), "no Hidden view when nothing is hidden")
+	require.NotContains(t, l.String(), "Hid")
+}

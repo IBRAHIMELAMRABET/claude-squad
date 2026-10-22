@@ -46,6 +46,8 @@ type UIPrefs struct {
 	FilterMode string `json:"filter_mode,omitempty"`
 	// ListHidden collapses the session list so the preview takes the full width.
 	ListHidden bool `json:"list_hidden,omitempty"`
+	// HiddenSessions are the Claude session ids of past sessions hidden from the list.
+	HiddenSessions []string `json:"hidden_sessions,omitempty"`
 }
 
 // StateManager combines instance storage and app state management

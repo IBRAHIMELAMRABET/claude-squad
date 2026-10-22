@@ -5,7 +5,9 @@ import (
 	"claude-squad/hooks"
 	"claude-squad/log"
 	"claude-squad/session/git"
+	"claude-squad/session/history"
 	"claude-squad/session/tmux"
+	"crypto/rand"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -92,6 +94,9 @@ type Instance struct {
 	Archived bool
 	// Summary is a short description shown for archived sessions (last prompt).
 	Summary string
+	// Hidden marks a past session the user hid from the list. Not persisted here: the ids
+	// are kept with the UI preferences.
+	Hidden bool
 	// Label is the name Claude knows the session by (its /rename title, or the title of the
 	// past row it was resumed from), shown instead of Title when set. Title stays the
 	// session's key (tmux session name, storage). Not persisted.
@@ -143,6 +148,7 @@ func (i *Instance) ToInstanceData() InstanceData {
 		LastActivity: i.LastActivity,
 		InPlace:      i.InPlace,
 		ResumeID:     i.ResumeID,
+		ClaudeID:     i.ClaudeSessionID,
 	}
 
 	// Only include worktree data if gitWorktree is initialized
@@ -172,18 +178,19 @@ func (i *Instance) ToInstanceData() InstanceData {
 // FromInstanceData creates a new Instance from serialized data
 func FromInstanceData(data InstanceData) (*Instance, error) {
 	instance := &Instance{
-		Title:        data.Title,
-		Path:         data.Path,
-		Branch:       data.Branch,
-		Status:       data.Status,
-		Height:       data.Height,
-		Width:        data.Width,
-		CreatedAt:    data.CreatedAt,
-		UpdatedAt:    data.UpdatedAt,
-		Program:      data.Program,
-		LastActivity: data.LastActivity,
-		InPlace:      data.InPlace,
-		ResumeID:     data.ResumeID,
+		Title:           data.Title,
+		Path:            data.Path,
+		Branch:          data.Branch,
+		Status:          data.Status,
+		Height:          data.Height,
+		Width:           data.Width,
+		CreatedAt:       data.CreatedAt,
+		UpdatedAt:       data.UpdatedAt,
+		Program:         data.Program,
+		LastActivity:    data.LastActivity,
+		InPlace:         data.InPlace,
+		ResumeID:        data.ResumeID,
+		ClaudeSessionID: data.ClaudeID,
 		gitWorktree: git.NewGitWorktreeFromStorage(
 			data.Worktree.RepoPath,
 			data.Worktree.WorktreePath,
@@ -374,10 +381,31 @@ func shellQuote(s string) string {
 
 // resumeArgs appends the --resume flag for a resumed claude session.
 func (i *Instance) resumeArgs(program string) string {
-	if i.ResumeID == "" || !hooks.IsClaude(program) {
+	if !hooks.IsClaude(program) {
 		return program
 	}
-	return program + " --resume " + i.ResumeID
+	id := i.ResumeID
+	if id == "" && i.ClaudeSessionID != "" && history.TranscriptExists(i.ClaudeSessionID) {
+		id = i.ClaudeSessionID // recorded since it started: continue it
+	}
+	switch {
+	case id != "":
+		return program + " --resume " + id
+	case i.ClaudeSessionID != "":
+		// A new conversation with a known id and the session's name: Claude opens straight
+		// on a chat (not its agent view), and its transcript is known from the start.
+		return program + " --session-id " + i.ClaudeSessionID + " -n " + shellQuote(i.Title)
+	}
+	return program
+}
+
+// newSessionID returns a random version 4 UUID, the form claude --session-id takes.
+func newSessionID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // PaneID returns the tmux pane id of the session, cached after the first lookup. Empty when
@@ -436,9 +464,6 @@ func (i *Instance) RepoLabel() string {
 // server went away, as when WSL stops): it stays listed, paused, and resuming it continues
 // its Claude conversation where it ran.
 func (i *Instance) MarkEnded() {
-	if i.ResumeID == "" && i.ClaudeSessionID != "" {
-		i.ResumeID = i.ClaudeSessionID
-	}
 	if i.tmuxSession != nil {
 		i.tmuxSession.SetProgram(i.launchProgram())
 	}
@@ -478,6 +503,9 @@ func (i *Instance) SetSelectedBranch(branch string) {
 func (i *Instance) Start(firstTimeSetup bool) error {
 	if i.Title == "" {
 		return fmt.Errorf("instance title cannot be empty")
+	}
+	if firstTimeSetup && i.ResumeID == "" && i.ClaudeSessionID == "" && hooks.IsClaude(i.Program) {
+		i.ClaudeSessionID = newSessionID()
 	}
 
 	var tmuxSession *tmux.TmuxSession

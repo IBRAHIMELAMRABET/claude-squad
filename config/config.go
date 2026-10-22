@@ -97,6 +97,9 @@ type Config struct {
 	// ShowScratchpadSessions also lists sessions recorded in Claude Code scratchpad folders,
 	// which agents and tests started from inside another session. Hidden by default.
 	ShowScratchpadSessions bool `json:"show_scratchpad_sessions,omitempty"`
+	// ShowHeadlessSessions also lists runs without a terminal (claude -p, the SDK), which
+	// are tests and automation. Hidden by default.
+	ShowHeadlessSessions bool `json:"show_headless_sessions,omitempty"`
 	// HistoryIgnore lists path fragments; past sessions whose directory contains one are
 	// not listed, e.g. ["/AppData/Local/Temp/", "/tmp/"]. Empty by default.
 	HistoryIgnore []string `json:"history_ignore,omitempty"`

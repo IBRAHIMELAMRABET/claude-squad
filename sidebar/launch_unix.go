@@ -83,7 +83,7 @@ func ensureLayout(sidebarCommand string, width int) error {
 		return err
 	}
 	placeholder := filepath.Join(scriptDir, "placeholder.sh")
-	if err := os.WriteFile(placeholder, []byte(PlaceholderScript()), 0700); err != nil {
+	if err := os.WriteFile(placeholder, []byte(PlaceholderScript(width+2)), 0700); err != nil {
 		return err
 	}
 

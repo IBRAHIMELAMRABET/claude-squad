@@ -938,5 +938,5 @@ func TestEndedSessionsStayPaused(t *testing.T) {
 		require.Equal(t, session.Paused, inst.Status, "%s is parked, no longer polled", inst.Title)
 	}
 	require.Equal(t, "abc", inplace.ResumeID)
-	require.Equal(t, "def", fresh.ResumeID, "resuming continues its conversation")
+	require.Equal(t, "def", fresh.ClaudeSessionID, "its conversation is kept: relaunching resumes it once recorded")
 }

@@ -35,6 +35,7 @@ const (
 	// Filter keybindings
 	KeyActiveOnly  // Toggle hiding paused sessions.
 	KeySearch      // Start typing a text filter.
+	KeyHide        // Hide or unhide the selected past session.
 	KeyFilterKeep  // Leave filter mode keeping the filter (enter).
 	KeyFilterClear // Leave filter mode clearing the filter (esc).
 
@@ -72,6 +73,7 @@ var GlobalKeyStringsMap = map[string]KeyName{
 	" ":          KeyFold,
 	"a":          KeyActiveOnly,
 	"/":          KeySearch,
+	"x":          KeyHide,
 	"z":          KeyToggleList,
 	"w":          KeyNextWaiting,
 	"t":          KeyTerminalView,
@@ -152,6 +154,10 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyFold: key.NewBinding(
 		key.WithKeys(" "),
 		key.WithHelp("space", "fold"),
+	),
+	KeyHide: key.NewBinding(
+		key.WithKeys("x"),
+		key.WithHelp("x", "hide"),
 	),
 	KeyActiveOnly: key.NewBinding(
 		key.WithKeys("a"),

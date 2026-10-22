@@ -30,6 +30,9 @@ type Entry struct {
 	Title string
 	// CustomTitle is the latest title set with /rename, if any.
 	CustomTitle string
+	// Headless is true for a run without a terminal (claude -p, the SDK): tests and
+	// automation rather than a conversation to come back to.
+	Headless bool
 	// LastPrompt is the most recent prompt recorded in the transcript, if any.
 	LastPrompt string
 	// Updated is the transcript's modification time.
@@ -48,6 +51,16 @@ func ProjectsDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".claude", "projects"), nil
+}
+
+// TranscriptExists reports whether Claude recorded a transcript for the session id.
+func TranscriptExists(id string) bool {
+	dir, err := ProjectsDir()
+	if err != nil || id == "" {
+		return false
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*", id+".jsonl"))
+	return len(matches) > 0
 }
 
 var sessionFile = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$`)
@@ -132,6 +145,7 @@ func (s *Scanner) Scan(projectsDir string, perProject int, maxAge time.Duration)
 				CWD:         sum.cwd,
 				Title:       sum.title(),
 				CustomTitle: sum.customTitle,
+				Headless:    sum.entrypoint == "sdk-cli",
 				LastPrompt:  sum.lastPrompt,
 				Updated:     c.mod,
 				Path:        path,
@@ -180,6 +194,8 @@ type summary struct {
 	customTitle string
 	firstPrompt string
 	lastPrompt  string
+	// entrypoint is how the session was started: "cli" in a terminal, "sdk-cli" headless.
+	entrypoint string
 }
 
 // title picks the display title: the custom title, else the first prompt, else a
@@ -230,6 +246,7 @@ type transcriptLine struct {
 	Type        string          `json:"type"`
 	CWD         string          `json:"cwd"`
 	CustomTitle string          `json:"customTitle"`
+	Entrypoint  string          `json:"entrypoint"`
 	LastPrompt  string          `json:"lastPrompt"`
 	IsMeta      bool            `json:"isMeta"`
 	Message     json.RawMessage `json:"message"`
@@ -247,6 +264,9 @@ func ParseHead(r io.Reader) summary {
 		}
 		if h.cwd == "" && line.CWD != "" {
 			h.cwd = line.CWD
+		}
+		if h.entrypoint == "" && line.Entrypoint != "" {
+			h.entrypoint = line.Entrypoint
 		}
 		switch line.Type {
 		case "custom-title":

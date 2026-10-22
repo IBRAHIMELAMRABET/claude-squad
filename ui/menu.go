@@ -148,7 +148,7 @@ func (m *Menu) addInstanceOptions() {
 
 	// Past sessions can only be resumed.
 	if m.instance.Archived {
-		m.options = []keys.KeyName{keys.KeyNew, keys.KeyResumeHistory, keys.KeyNextWaiting,
+		m.options = []keys.KeyName{keys.KeyNew, keys.KeyResumeHistory, keys.KeyHide, keys.KeyNextWaiting,
 			keys.KeyActiveOnly, keys.KeySearch, keys.KeyToggleList, keys.KeyHelp, keys.KeyQuit}
 		return
 	}
@@ -203,7 +203,7 @@ func (m *Menu) emptyOptions() []keys.KeyName {
 func (m *Menu) sidebarOptions() []keys.KeyName {
 	options := []keys.KeyName{keys.KeyNew, keys.KeyPrompt}
 	if m.instance.Archived {
-		return append(options, keys.KeyResumeHistory, keys.KeySidebarHint, keys.KeyCollapse, keys.KeyNextWaiting,
+		return append(options, keys.KeyResumeHistory, keys.KeyHide, keys.KeySidebarHint, keys.KeyCollapse, keys.KeyNextWaiting,
 			keys.KeyActiveOnly, keys.KeySearch, keys.KeyHelp, keys.KeyQuit)
 	}
 	if !m.instance.Adopted {
@@ -250,11 +250,16 @@ func folderLabel(path string, width int) string {
 	if len(parts) > 3 {
 		parts = parts[len(parts)-3:]
 	}
-	label := []rune(strings.Join(parts, "/"))
-	if width > 1 && len(label) > width {
-		label = append([]rune("…"), label[len(label)-width+1:]...)
+	return cutLeft(strings.Join(parts, "/"), width)
+}
+
+// cutLeft keeps the end of s within width runes, marking the cut with an ellipsis.
+func cutLeft(s string, width int) string {
+	r := []rune(s)
+	if width > 1 && len(r) > width {
+		r = append([]rune("…"), r[len(r)-width+1:]...)
 	}
-	return string(label)
+	return string(r)
 }
 
 // compactString lays the options out left-aligned on as many lines as needed to fit the
@@ -268,6 +273,7 @@ func (m *Menu) compactString() string {
 			mode = "in-place"
 		}
 		lines = append(lines,
+			descStyle.Render("name ")+keyStyle.Render(cutLeft(m.instance.Title, m.width-8)+"▏"),
 			descStyle.Render("in ")+keyStyle.Render(folderLabel(m.instance.Path, m.width-3)),
 			keyStyle.Render(mode)+descStyle.Render(" session"))
 	}

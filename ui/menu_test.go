@@ -70,3 +70,19 @@ func TestFolderLabel(t *testing.T) {
 	require.Equal(t, "…ode/Payments", folderLabel("/mnt/c/Users/me/Projects/Orbit/Code/Payments", 13))
 	require.Equal(t, "me/Projects/Atelier", folderLabel(`C:\Users\me\Projects\Atelier`, 40), "Windows separators too")
 }
+
+// While naming, the list shows the name being typed, cut from the left when long.
+func TestNamingMenuShowsTheName(t *testing.T) {
+	m := NewMenu()
+	m.SetSidebar(true)
+	m.SetSize(31, SidebarMenuHeight)
+	inst, _ := session.NewInstance(session.InstanceOptions{Title: "release notes for the api", Path: "/repos/Backend", Program: "claude"})
+	m.SetInstance(inst)
+	m.SetState(StateNewInstance)
+	out := m.String()
+	require.Contains(t, out, "name")
+	require.Contains(t, out, "for the api▏")
+	for _, l := range strings.Split(out, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(l), 31, "line too wide: %q", l)
+	}
+}

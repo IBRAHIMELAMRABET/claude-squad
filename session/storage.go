@@ -24,6 +24,8 @@ type InstanceData struct {
 	InPlace bool `json:"in_place,omitempty"`
 	// ResumeID is the Claude session this instance resumes, if any.
 	ResumeID string `json:"resume_id,omitempty"`
+	// ClaudeID is the Claude session id the instance runs, once known.
+	ClaudeID string `json:"claude_session_id,omitempty"`
 
 	Program   string          `json:"program"`
 	Worktree  GitWorktreeData `json:"worktree"`
