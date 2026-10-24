@@ -86,3 +86,23 @@ func TestNamingMenuShowsTheName(t *testing.T) {
 		require.LessOrEqual(t, lipgloss.Width(l), 31, "line too wide: %q", l)
 	}
 }
+
+// While a folder is typed, the list shows it (cut from the left) and how to finish.
+func TestNamingMenuShowsTheTypedFolder(t *testing.T) {
+	m := NewMenu()
+	m.SetSidebar(true)
+	m.SetSize(31, SidebarMenuHeight)
+	inst, _ := session.NewInstance(session.InstanceOptions{Title: "api", Path: "/repos/Backend", Program: "claude"})
+	m.SetInstance(inst)
+	m.SetState(StateNewInstance)
+	m.SetFolderInput("/mnt/c/Users/me/Documents/Projects/brand-new", "", true)
+	out := m.String()
+	require.Contains(t, out, "folder")
+	require.Contains(t, out, "Projects/brand-new▏")
+	require.Contains(t, out, "tab complete ↵ use esc back", "the whole hint fits")
+	for _, l := range strings.Split(out, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(l), 31, "line too wide: %q", l)
+	}
+	m.SetFolderInput("", "", false)
+	require.Contains(t, m.String(), "ctrl+o", "the key is shown while naming")
+}

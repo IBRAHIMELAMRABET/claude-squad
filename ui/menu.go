@@ -50,6 +50,12 @@ type Menu struct {
 	instance      *session.Instance
 	activeTab     int
 
+	// folderText is the folder being typed for a new session, folderNote a hint under it;
+	// folderEditing is true while it is typed.
+	folderText    string
+	folderNote    string
+	folderEditing bool
+
 	// keyDown is the key which is pressed. The default is -1.
 	keyDown keys.KeyName
 
@@ -58,7 +64,7 @@ type Menu struct {
 }
 
 var defaultMenuOptions = []keys.KeyName{keys.KeyNew, keys.KeyPrompt, keys.KeyHelp, keys.KeyQuit}
-var newInstanceMenuOptions = []keys.KeyName{keys.KeySubmitName, keys.KeyPickRepo, keys.KeyToggleMode}
+var newInstanceMenuOptions = []keys.KeyName{keys.KeySubmitName, keys.KeyPickRepo, keys.KeyToggleMode, keys.KeyTypeFolder}
 var promptMenuOptions = []keys.KeyName{keys.KeySubmitName}
 var filterMenuOptions = []keys.KeyName{keys.KeyFilterKeep, keys.KeyFilterClear}
 
@@ -81,6 +87,12 @@ func (m *Menu) ClearKeydown() {
 
 // SetSidebar switches the menu to the sidebar layout: different labels for the keys that act
 // on the session pane, and a compact rendering that wraps to the pane width.
+// SetFolderInput shows the folder being typed for a new session, with a hint under it, or
+// hides it.
+func (m *Menu) SetFolderInput(text, note string, editing bool) {
+	m.folderText, m.folderNote, m.folderEditing = text, note, editing
+}
+
 func (m *Menu) SetSidebar(on bool) {
 	m.sidebar = on
 	m.updateOptions()
@@ -267,6 +279,18 @@ func cutLeft(s string, width int) string {
 func (m *Menu) compactString() string {
 	var lines []string
 	// While naming a session the preview pane is not there to show where it will run.
+	if m.state == StateNewInstance && m.instance != nil && m.folderEditing {
+		note := m.folderNote
+		if note == "" {
+			note = "tab complete ↵ use esc back"
+		}
+		lines = append(lines,
+			descStyle.Render("name ")+keyStyle.Render(cutLeft(m.instance.Title, m.width-8)),
+			descStyle.Render("folder"),
+			keyStyle.Render(cutLeft(m.folderText, m.width-3)+"▏"),
+			descStyle.Render(note))
+		return lipgloss.NewStyle().PaddingLeft(1).Render(strings.Join(lines, "\n"))
+	}
 	if m.state == StateNewInstance && m.instance != nil {
 		mode := "worktree"
 		if m.instance.InPlace {

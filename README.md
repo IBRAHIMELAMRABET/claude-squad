@@ -120,7 +120,8 @@ they change.
 
 `n` starts in the folder of the row under the cursor (a session's, or a folder group's);
 `←/→` picks another known folder and `tab` switches between in place and worktree while you
-type the name. Any existing folder works; outside a git repository the session runs in
+type the name. `ctrl+o` types any folder instead (`C:\work\new`, `~/new`, with `tab`
+completion); one that does not exist yet is created after a second `enter`. Any existing folder works; outside a git repository the session runs in
 place. A new Claude session gets its own id and your name (`--session-id`, `-n`), so it opens
 on a chat and can be resumed by that id later. A session whose program exits, or whose tmux
 server went away, stays in the list paused; `↵` continues its conversation.

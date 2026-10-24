@@ -45,6 +45,7 @@ const (
 	KeyNextWaiting // Jump to the next session waiting for the user.
 
 	KeyToggleMode // While naming a new session: switch between worktree and in-place.
+	KeyTypeFolder // While naming a new session: type any folder, created when missing.
 	KeyPickRepo   // While naming a new session: cycle through the known repositories.
 
 	// Sidebar layout: the right pane shows the real session, so the same keys mean
@@ -187,6 +188,10 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyToggleMode: key.NewBinding(
 		key.WithKeys("tab"),
 		key.WithHelp("tab", "worktree/in-place"),
+	),
+	KeyTypeFolder: key.NewBinding(
+		key.WithKeys("ctrl+o"),
+		key.WithHelp("ctrl+o", "type folder"),
 	),
 	KeyPickRepo: key.NewBinding(
 		key.WithKeys("left", "right"),

@@ -123,6 +123,8 @@ type home struct {
 	repoChoices []string
 	repoIdx     int
 	newInPlace  bool
+	// folder is the folder being typed for the new session (ctrl+o), nil otherwise.
+	folder *folderInput
 
 	// keySent is used to manage underlining menu items
 	keySent bool
@@ -671,7 +673,13 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		}
 
 		instance := m.list.GetInstances()[m.list.NumInstances()-1]
+		if m.folder != nil {
+			return m, m.handleFolderKey(msg, instance)
+		}
 		switch msg.Type {
+		case tea.KeyCtrlO:
+			m.startFolderInput(instance)
+			return m, nil
 		// Start the instance (enable previews etc) and go back to the main menu state.
 		case tea.KeyEnter:
 			if len(instance.Title) == 0 {
@@ -1163,7 +1171,11 @@ func (m *home) newInstanceInPickedRepo() (*session.Instance, error) {
 	m.repoChoices = withFirst(m.selectedFolder(), knownRepos(cwd, m.appConfig, m.list.GetInstances()))
 	m.repoIdx = 0
 	if len(m.repoChoices) == 0 {
-		return nil, fmt.Errorf("no folder to create a session in: select a session or configure projects")
+		// Nothing known yet: start from the folder cs runs in; ctrl+o types any other.
+		if cwd == "" {
+			cwd, _ = os.UserHomeDir()
+		}
+		m.repoChoices = []string{cwd}
 	}
 	m.newInPlace = m.appConfig.InPlaceByDefault()
 	instance, err := session.NewInstance(session.InstanceOptions{
