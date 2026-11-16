@@ -43,14 +43,23 @@ type Entry struct {
 
 // ProjectsDir returns Claude Code's transcript store.
 func ProjectsDir() (string, error) {
+	dir, err := configDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "projects"), nil
+}
+
+// configDir returns Claude Code's configuration directory.
+func configDir() (string, error) {
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return filepath.Join(dir, "projects"), nil
+		return dir, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".claude", "projects"), nil
+	return filepath.Join(home, ".claude"), nil
 }
 
 // TranscriptExists reports whether Claude recorded a transcript for the session id.

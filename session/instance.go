@@ -470,6 +470,15 @@ func (i *Instance) MarkEnded() {
 	i.SetStatus(Paused)
 }
 
+// FollowConversation records that the session's Claude moved to another conversation, as
+// /clear does: its transcript is that one's, and resuming the session continues it.
+func (i *Instance) FollowConversation(id string) {
+	i.ClaudeSessionID = id
+	if i.ResumeID != "" {
+		i.ResumeID = id
+	}
+}
+
 // DisplayTitle is the name shown for the session: its Claude name when it has one.
 func (i *Instance) DisplayTitle() string {
 	if i.Label != "" {

@@ -585,6 +585,19 @@ func (t *TmuxSession) PaneID() (string, error) {
 	return "", fmt.Errorf("session %s has no panes", t.sanitizedName)
 }
 
+// SessionCreated returns when the tmux session with the given (sanitized) name was created.
+func SessionCreated(name string) (time.Time, error) {
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", "="+name+":", "#{session_created}").Output()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("error reading when %s started: %w", name, err)
+	}
+	secs, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(secs, 0), nil
+}
+
 func (t *TmuxSession) DoesSessionExist() bool {
 	// Using "-t name" does a prefix match, which is wrong. `-t=` does an exact match.
 	existsCmd := exec.Command("tmux", "has-session", fmt.Sprintf("-t=%s", t.sanitizedName))

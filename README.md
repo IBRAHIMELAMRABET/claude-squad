@@ -116,6 +116,11 @@ left out with `history_ignore`. `x` hides one past session; once something is hi
 view bar shows `Hidden`, where `x` brings a session back. Transcripts are re-read only when
 they change.
 
+Running sessions follow their Claude process through Claude Code's session registry
+(`~/.claude/sessions`): a `/rename` shows in the list within seconds, and after `/clear` the
+row follows the new conversation, which resuming the session then continues (the cleared one
+is listed as a past session).
+
 #### New sessions
 
 `n` starts in the folder of the row under the cursor (a session's, or a folder group's);

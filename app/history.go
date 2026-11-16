@@ -2,10 +2,12 @@ package app
 
 import (
 	"claude-squad/config"
+	"claude-squad/hooks"
 	"claude-squad/log"
 	"claude-squad/session"
 	"claude-squad/session/git"
 	"claude-squad/session/history"
+	"claude-squad/session/tmux"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,14 +80,17 @@ func (m *home) scanHistoryCmd(delay time.Duration) tea.Cmd {
 // new name (/rename). Only what was appended is read.
 const titleWatchInterval = 2 * time.Second
 
-// titleWatchMsg carries the names set since the previous check, by transcript path.
+// titleWatchMsg carries the names set since the previous check, by transcript path, and
+// the Claude process found for each running session.
 type titleWatchMsg struct {
 	titles map[string]string
+	live   map[*session.Instance]history.Live
 }
 
-// watchTitlesCmd checks the transcripts of running sessions for /rename after
-// titleWatchInterval. Checks never overlap: the next one is scheduled when this one's
-// result arrives.
+// watchTitlesCmd checks, after titleWatchInterval, the transcripts of running sessions for
+// /rename and Claude's session registry for the conversation and name of each one's
+// process (/clear moves a process to a new conversation, and transcript). Checks never
+// overlap: the next one is scheduled when this one's result arrives.
 func (m *home) watchTitlesCmd() tea.Cmd {
 	if m.appConfig.DisableHistory {
 		return nil
@@ -95,14 +100,35 @@ func (m *home) watchTitlesCmd() tea.Cmd {
 	}
 	watcher := m.titleWatcher
 	var paths []string
+	var probes []liveProbe
 	for _, inst := range m.list.GetInstances() {
-		if path, ok := m.transcripts[claudeID(inst)]; ok && !inst.Archived {
+		if inst.Archived {
+			continue
+		}
+		if path, ok := m.transcripts[claudeID(inst)]; ok {
 			paths = append(paths, path)
+		}
+		if inst.Started() && !inst.Paused() && hooks.IsClaude(inst.Program) && inst.TmuxName() != "" {
+			probes = append(probes, liveProbe{
+				inst: inst,
+				id:   claudeID(inst),
+				dir:  config.NormalizePath(inst.WorkDir()),
+				tmux: inst.TmuxName(),
+				link: m.liveLinks[inst],
+			})
 		}
 	}
 	return func() tea.Msg {
 		time.Sleep(titleWatchInterval)
-		return titleWatchMsg{titles: watcher.Check(paths)}
+		msg := titleWatchMsg{titles: watcher.Check(paths)}
+		if len(probes) > 0 {
+			live, err := history.LiveSessions()
+			if err != nil {
+				log.WarningLog.Printf("could not read Claude's session registry: %v", err)
+			}
+			msg.live = matchLive(probes, live, tmux.SessionCreated)
+		}
+		return msg
 	}
 }
 

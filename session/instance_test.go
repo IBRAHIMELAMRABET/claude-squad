@@ -296,6 +296,27 @@ func TestLaunchProgramForWindowsClaude(t *testing.T) {
 	require.Equal(t, "/mnt/c/Users/me/.local/bin/claude.exe --resume abc", inst.launchProgram())
 }
 
+// After /clear, relaunching an ended session continues the conversation it was in last,
+// whether it had been resumed or started by cs.
+func TestFollowConversationResumesTheNewOne(t *testing.T) {
+	projects := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", projects)
+	require.NoError(t, os.MkdirAll(filepath.Join(projects, "projects", "x"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(projects, "projects", "x", "after-clear.jsonl"), []byte("{}\n"), 0644))
+
+	resumed, err := NewInstance(InstanceOptions{Title: "r", Path: t.TempDir(), Program: "claude.exe", ResumeID: "before-clear"})
+	require.NoError(t, err)
+	resumed.FollowConversation("after-clear")
+	require.Equal(t, "claude.exe --resume after-clear", resumed.launchProgram())
+	require.Equal(t, "after-clear", resumed.ToInstanceData().ResumeID, "saved")
+
+	started, err := NewInstance(InstanceOptions{Title: "s", Path: t.TempDir(), Program: "claude.exe", InPlace: true})
+	require.NoError(t, err)
+	started.ClaudeSessionID = "before-clear"
+	started.FollowConversation("after-clear")
+	require.Equal(t, "claude.exe --resume after-clear", started.launchProgram())
+}
+
 func TestLaunchEnvKeepsTranscripts(t *testing.T) {
 	t.Setenv("WSLENV", "WT_SESSION:WT_PROFILE_ID/u")
 	linux, _ := NewInstance(InstanceOptions{Title: "l", Path: t.TempDir(), Program: "claude"})

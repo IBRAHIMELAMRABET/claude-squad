@@ -149,6 +149,8 @@ type home struct {
 	// maps each Claude session id to its transcript, as of the last scan.
 	titleWatcher *history.TitleWatcher
 	transcripts  map[string]string
+	// liveLinks is the Claude process each running session was matched to last time.
+	liveLinks map[*session.Instance]liveLink
 	// width is the last known terminal width; listWidth the columns the list occupies.
 	width     int
 	listWidth int
@@ -443,6 +445,11 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, next
 	case titleWatchMsg:
 		m.applyTitles(msg.titles)
+		if m.applyLive(msg.live) {
+			if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
+				log.WarningLog.Printf("failed to save sessions: %v", err)
+			}
+		}
 		return m, m.watchTitlesCmd()
 	case adoptScanMsg:
 		livePanes := make(map[string]bool, len(msg.panes))
