@@ -214,6 +214,7 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 		instance.started = true
 		instance.tmuxSession = tmux.NewTmuxSession(instance.Title, instance.launchProgram())
 		instance.tmuxSession.SetEnv(instance.launchEnv())
+		instance.reviveIfRunning()
 	} else {
 		if err := instance.Start(false); err != nil {
 			return nil, err
@@ -221,6 +222,23 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 	}
 
 	return instance, nil
+}
+
+// reviveIfRunning takes back as running a session saved as paused whose agent still runs,
+// as when it was resumed after the last save: its tmux session is alive and its directory
+// is there. A session paused with c has no worktree any more, so it stays paused.
+func (i *Instance) reviveIfRunning() {
+	if !i.tmuxSession.DoesSessionExist() {
+		return
+	}
+	if info, err := os.Stat(i.WorkDir()); err != nil || !info.IsDir() {
+		return
+	}
+	if err := i.tmuxSession.Restore(); err != nil {
+		log.WarningLog.Printf("could not reattach %q, leaving it paused: %v", i.Title, err)
+		return
+	}
+	i.SetStatus(Running)
 }
 
 // Options for creating a new instance

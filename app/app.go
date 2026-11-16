@@ -446,9 +446,7 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case titleWatchMsg:
 		m.applyTitles(msg.titles)
 		if m.applyLive(msg.live) {
-			if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
-				log.WarningLog.Printf("failed to save sessions: %v", err)
-			}
+			m.saveInstances()
 		}
 		return m, m.watchTitlesCmd()
 	case adoptScanMsg:
@@ -1117,6 +1115,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if err := selected.Resume(); err != nil {
 			return m, m.handleError(err)
 		}
+		m.saveInstances()
 		return m, tea.Batch(tea.WindowSize(), m.instanceChanged())
 	case keys.KeyEnter:
 		if m.list.NumInstances() == 0 {
@@ -1357,6 +1356,7 @@ func (m *home) handleSidebarKey(name keys.KeyName) (bool, tea.Cmd) {
 			if err := selected.Resume(); err != nil {
 				return true, m.handleError(err)
 			}
+			m.saveInstances()
 			return true, m.focusSession()
 		}
 		if selected == nil || selected.Paused() || selected.Status == session.Loading || !selected.Started() {

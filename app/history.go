@@ -314,6 +314,17 @@ func (m *home) claimTranscripts(entries []history.Entry) {
 	}
 }
 
+// saveInstances saves the sessions, so a list started later (after an update, or once
+// WSL restarts) sees them as they are now.
+func (m *home) saveInstances() {
+	if m.storage == nil {
+		return
+	}
+	if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
+		log.WarningLog.Printf("failed to save sessions: %v", err)
+	}
+}
+
 // runningCount is the number of sessions that count against max_instances: everything
 // but past sessions, which are only listed.
 func (m *home) runningCount() int {

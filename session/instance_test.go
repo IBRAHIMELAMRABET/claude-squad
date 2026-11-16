@@ -89,6 +89,39 @@ func TestStartRestoresInstanceWhenTmuxSessionSurvives(t *testing.T) {
 	require.Equal(t, 1, ptyFactory.calls)
 }
 
+// A session saved as paused but resumed since (its tmux session alive, its directory there)
+// loads as running; one whose directory is gone, or whose tmux session died, stays paused.
+func TestReviveIfRunning(t *testing.T) {
+	load := func(dir string, alive bool) (*Instance, *nullPtyFactory) {
+		ptyFactory := &nullPtyFactory{t: t}
+		cmdExec := cmd_test.MockCmdExec{RunFunc: func(cmd *exec.Cmd) error {
+			if strings.Contains(cmd.String(), "has-session") && !alive {
+				return fmt.Errorf("can't find session")
+			}
+			return nil
+		}}
+		inst, err := NewInstance(InstanceOptions{Title: "s", Path: dir, Program: "claude", InPlace: true})
+		require.NoError(t, err)
+		inst.SetTmuxSession(tmux.NewTmuxSessionWithDeps("s", "claude", ptyFactory, cmdExec))
+		inst.started = true
+		inst.SetStatus(Paused)
+		inst.reviveIfRunning()
+		return inst, ptyFactory
+	}
+
+	inst, pty := load(t.TempDir(), true)
+	require.Equal(t, Running, inst.Status)
+	require.Equal(t, 1, pty.calls, "attached again")
+
+	inst, pty = load(filepath.Join(t.TempDir(), "gone"), true)
+	require.Equal(t, Paused, inst.Status, "its directory is gone")
+	require.Zero(t, pty.calls)
+
+	inst, pty = load(t.TempDir(), false)
+	require.Equal(t, Paused, inst.Status, "nothing runs any more")
+	require.Zero(t, pty.calls)
+}
+
 // ApplyObservation turns what the screen says into a status. The screen wins when it is
 // recognised; otherwise output changes mean Running and silence means Ready.
 func TestApplyObservation(t *testing.T) {
