@@ -17,9 +17,21 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// Starting a session writes cs files (the hooks settings) under the home directory: keep
+	// them out of the real one, while git still finds the user's identity.
+	if home, err := os.UserHomeDir(); err == nil && os.Getenv("GIT_CONFIG_GLOBAL") == "" {
+		os.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
+	}
+	home, err := os.MkdirTemp("", "cs-session-test-home")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", home)
 	log.Initialize(false)
-	defer log.Close()
-	os.Exit(m.Run())
+	code := m.Run()
+	log.Close()
+	os.RemoveAll(home)
+	os.Exit(code)
 }
 
 // nullPtyFactory hands back a throwaway file instead of a real PTY.
